@@ -60,9 +60,13 @@ class ToutiaoSession(ArticlePlatformSession):
         return await self.json_or_raise(r, path)
 
     async def check_login(self) -> dict:
-        """取 UserId / UserName(图片上传要带)。取不到即视为登录态失效。"""
-        d = (await self._api("/mp/agw/creator_center/user_info", None,
-                             referer=f"{TT}/profile_v4/manage/graphic")).get("data") or {}
+        """取 UserId / UserName(图片上传要带)。取不到即视为登录态失效。
+
+        2026-08-17:user_info 接口改成了顶层直出(user_id/name 不再包 data),
+        有效 Cookie 被误判失效。两种结构都兼容。"""
+        resp = await self._api("/mp/agw/creator_center/user_info", None,
+                               referer=f"{TT}/profile_v4/manage/graphic")
+        d = resp.get("data") or resp
         uid = int(d.get("user_id") or d.get("id") or 0)
         if not uid:
             raise AuthExpired("今日头条登录态已失效,请重新导入 Cookie")

@@ -93,6 +93,16 @@ class ToutiaoTests(unittest.TestCase):
         self.api = ToutiaoSession("sessionid=x")
         self.api._uid, self.api._uname = 123, "u"
 
+    def test_check_login_accepts_flat_response(self):
+        # 2026-08-17:user_info 改成顶层直出(无 data 包装),曾把有效 Cookie 误判失效
+        for payload in ({"data": {"user_id": 7, "screen_name": "包壳"}},
+                        {"user_id": 7, "name": "直出", "code": 0}):
+            with self.subTest(payload=payload):
+                api = ToutiaoSession("sessionid=x")
+                api._api = AsyncMock(return_value=payload)
+                info = run(api.check_login())
+                self.assertEqual(info["uid"], 7)
+
     def test_html_matches_editor_format(self):
         md = "# 标题\n\n正文**粗**。"
         html = run(self.api.md_to_html(md, Path(".")))
