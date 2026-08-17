@@ -46,6 +46,11 @@ creatorhub/
 
 ## 部署
 
-- 生产在 Windows `C:\creatorhub`（8000 端口），与本仓库是两套代码，同步前先 diff。
-  ⚠️ 本次目录重组后与 win 的 diff 是全量级别，同步要整仓覆盖而不是拷单文件。
+- 生产在家里 Mac（`ssh machome`）`~/haibo/creatorhub`，8000 端口，2026-08-17 起。
+  同 git 仓库：本机改完 commit push，生产 `git pull` + 重启 uvicorn 即上线。
+  ⚠️ 生产不在 `~/Documents` 下——launchd 读 Documents 会被 macOS TCC 拒绝。
+- 产线（quote-video / fitmeal-notes 的 launchd 任务）靠本库供登录态：
+  creatorhub_creds.py 桥接 + xhs 线的 CREATORHUB_DB/DIR，改 db 结构或
+  application/xhs/creator_sign.py 位置前先想想产线。
+- Windows `C:\creatorhub` 已退役（服务停、计划任务禁），代码数据保留仅作备份。
 - SQLite 已加 WAL/busy_timeout/foreign_keys（moss/common/db.py），不要绕过 get_session 直连。
