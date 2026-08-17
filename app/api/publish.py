@@ -17,6 +17,7 @@ from sqlmodel import select
 from moss.core.config import get_config
 from moss.common.db import get_session
 from moss.model import ContentRecord, DouyinAccount, PublishTask
+from application.registry import ARTICLE_KEYS, label as platform_label
 from application.xhs import has_creator_cookies
 from moss.core.risk import OperationKind, RiskCategory, classify_platform_error
 from moss.core.runtime import rt
@@ -111,20 +112,28 @@ async def add_publish(body: PublishIn):
         raise HTTPException(400, "没有可用的媒体文件,请先上传")
     with get_session() as s:
         acc = s.get(DouyinAccount, body.account_id)
-        if not acc or acc.platform not in ("xhs", "kuaishou", "douyin", "shipinhao"):
-            raise HTTPException(400, "请选择一个已登录的抖音 / 小红书 / 快手 / 视频号账号")
-        pname = {"kuaishou": "快手", "douyin": "抖音",
-                 "shipinhao": "视频号"}.get(acc.platform, "小红书")
-        if acc.platform in ("kuaishou", "douyin", "shipinhao"):
+        if not acc:
+            raise HTTPException(400, "请选择一个已登录的账号")
+        pname = platform_label(acc.platform)
+        if acc.platform in ARTICLE_KEYS:
+            # 图文平台(百家号/头条/公众号):纯协议发布,凭证是账号 Cookie
+            if not acc.cookie:
+                raise HTTPException(400, f"该{pname}账号没有 Cookie,请先在账号页登录")
+        elif acc.platform in ("kuaishou", "douyin", "shipinhao"):
             # 抖音 / 快手 / 视频号发布走浏览器自动化,登录态在该账号持久 profile 里
             if not (acc.creator_storage_state or acc.storage_state):
                 raise HTTPException(400, f"该{pname}账号不可发布:请先在账号页完成登录")
-        elif not (acc.creator_storage_state or has_creator_cookies(acc.storage_state)):
-            raise HTTPException(400, "该账号不可发布:请对该号完成「小红书扫码登录」或「创作者登录」")
+        elif acc.platform == "xhs":
+            if not (acc.creator_storage_state or has_creator_cookies(acc.storage_state)):
+                raise HTTPException(400, "该账号不可发布:请对该号完成「小红书扫码登录」或「创作者登录」")
+        else:
+            raise HTTPException(400, f"{pname} 不支持发布")
         vis = body.visibility if body.visibility in ("public", "friends", "private") else "public"
+        # 标题上限:图文平台 64 字(百家号/公众号),视频平台 20 字
+        title_limit = 64 if acc.platform in ARTICLE_KEYS else 20
         t = PublishTask(
             platform=acc.platform, account_id=body.account_id, media_type=body.media_type,
-            title=body.title.strip()[:20], desc=body.desc, topics=body.topics,
+            title=body.title.strip()[:title_limit], desc=body.desc, topics=body.topics,
             location=(body.location or "").strip()[:60],
             visibility=vis, allow_save=bool(body.allow_save),
             media_json=json.dumps(paths), scheduled_at=_parse_when(body.scheduled_at),
@@ -147,7 +156,7 @@ async def update_publish(tid: int, body: PublishUpdate):
                 raise HTTPException(400, "发布账号不存在、登录态失效或与任务平台不匹配")
             t.account_id = body.account_id
         if body.title is not None:
-            t.title = body.title.strip()[:20]
+            t.title = body.title.strip()[:64 if t.platform in ARTICLE_KEYS else 20]
         if body.desc is not None:
             t.desc = body.desc
         if body.topics is not None:

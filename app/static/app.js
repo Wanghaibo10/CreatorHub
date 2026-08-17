@@ -868,8 +868,20 @@ function applyPlatformUI() {
     : sph ? "上传视频到视频号助手(实验性)" : "上传图集 / 视频到小红书(实验性)";
   if ($("pub-head-lead")) $("pub-head-lead").textContent =
     art ? "发布文章" : (ks || dy || sph) ? "发布作品" : "发布笔记";
-  if ($("pub-title")) $("pub-title").placeholder =
-    art ? "文章标题(百家号上限 64 字)" : (ks || dy || sph) ? "给作品起个标题" : "给笔记起个标题";
+  if ($("pub-title")) {
+    $("pub-title").placeholder =
+      art ? `${pfLabel}文章标题` : (ks || dy || sph) ? "给作品起个标题" : "给笔记起个标题";
+    // 图文平台标题上限 64 字(百家号/公众号),视频平台 20 字——别让 maxlength 静默截断
+    $("pub-title").maxLength = art ? 64 : 20;
+  }
+  if ($("pub-title-label")) $("pub-title-label").textContent =
+    art ? "标题(≤64 字)" : "标题(≤20 字)";
+  if ($("pub-files-label")) $("pub-files-label").textContent = art
+    ? "封面 / 正文图(公众号封面必填;百家号 1 或 3 张;头条可不给)"
+    : ($("pub-type") && $("pub-type").value === "video"
+       ? "选择视频文件(单个)" : "选择图片(可多选,最多 18 张)");
+  if ($("pub-desc")) $("pub-desc").placeholder = art
+    ? "正文内容,支持 Markdown(本地图片会自动上传到平台图床)…" : "正文内容…";
   const pubHintText =
     PLATFORM === "wechat_mp"
     ? "公众号只能到草稿箱：群发要管理员扫码确认，且未认证订阅号一天只能群发 1 次、发错不能撤，所以最后一步固定由人在手机上完成。正文支持 Markdown，封面会自动裁成 2.35:1 与 1:1 两版（不裁会被平台拦成 64004）。"
@@ -4681,11 +4693,15 @@ document.addEventListener("keydown", e => {
 // ─── 发布到小红书 ───
 function populatePubAcc() {
   const sel = $("pub-acc"); if (!sel) return;
-  // 小红书发布需创作者号;抖音 / 快手发布有登录态即可(走浏览器自动化)
+  // 小红书发布需创作者号;其余平台有登录态即可(浏览器自动化或纯协议)
   const list = PLATFORM === "xhs" ? ACCOUNTS.filter(a => a.has_creator) : ACCOUNTS;
   const ph = list.length ? "选择发布账号"
-    : (PLATFORM === "kuaishou" ? "请先完成「快手扫码/创作者登录」"
-      : PLATFORM === "douyin" ? "请先完成「抖音扫码/创作者登录」" : "请先完成「小红书创作者登录」");
+    : pfIsArticle(PLATFORM)
+      ? `请先在账号页登录${PF_NAME[PLATFORM] || "该平台"}(打开登录页 / Cookie 粘贴)`
+    : PLATFORM === "kuaishou" ? "请先完成「快手扫码/创作者登录」"
+    : PLATFORM === "douyin" ? "请先完成「抖音扫码/创作者登录」"
+    : PLATFORM === "shipinhao" ? "请先完成「视频号登录」"
+    : "请先完成「小红书创作者登录」";
   sel.innerHTML = accOptions(list, ph);
   if (list.length) sel.value = String(list[0].id);
 }
@@ -4783,8 +4799,8 @@ async function editPublish(id) {
     $("ui-body").innerHTML = `
       <div><label class="field" for="ep-account">发布账号</label>
         <select id="ep-account">${accountOptions}</select></div>
-      <div><label class="field" for="ep-title">标题（≤20 字）</label>
-        <input id="ep-title" maxlength="20" value="${esc(task.title || "")}"></div>
+      <div><label class="field" for="ep-title">标题（≤${pfIsArticle(task.platform) ? 64 : 20} 字）</label>
+        <input id="ep-title" maxlength="${pfIsArticle(task.platform) ? 64 : 20}" value="${esc(task.title || "")}"></div>
       <div><label class="field" for="ep-desc">正文</label>
         <textarea id="ep-desc" rows="4">${esc(task.desc || "")}</textarea></div>
       <div><label class="field" for="ep-topics">话题</label>

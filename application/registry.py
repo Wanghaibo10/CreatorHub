@@ -93,3 +93,19 @@ def normalize(platform: str | None, default: str = "douyin",
 
 def label(platform: str) -> str:
     return spec(platform).label
+
+
+def article_session(platform: str, credentials: str):
+    """图文平台协议客户端工厂,返回 (session_cls, init_kwargs)。
+
+    公众号凭证是 "cookie||token" 合并形态,在此拆开。惰性 import 防循环
+    (平台包自身 import 本注册表)。app 层与 engine 体检共用这一个入口。"""
+    if platform == "baijiahao":
+        from application.baijiahao import BaijiahaoSession
+        return BaijiahaoSession, {"cookie": credentials}
+    if platform == "toutiao":
+        from application.toutiao import ToutiaoSession
+        return ToutiaoSession, {"cookie": credentials}
+    from application.wechat_mp import WechatMpSession, split_creds
+    ck, tk = split_creds(credentials)
+    return WechatMpSession, {"cookie": ck, "token": tk}

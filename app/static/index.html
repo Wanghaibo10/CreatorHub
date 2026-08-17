@@ -2021,7 +2021,7 @@
       <div class="stack">
         <div class="form-grid">
           <div class="form-field"><label for="pub-acc">发布账号</label><select id="pub-acc"></select></div>
-          <div class="form-field"><label for="pub-type">作品类型</label><select id="pub-type" onchange="onPubType()">
+          <div class="form-field video-only"><label for="pub-type">作品类型</label><select id="pub-type" onchange="onPubType()">
               <option value="images">图文（图集）</option><option value="video">视频</option>
           </select></div>
         </div>
@@ -2034,7 +2034,7 @@
           </div>
         </div>
         <div>
-          <label class="field" for="pub-title">标题(≤20 字)</label>
+          <label class="field" for="pub-title" id="pub-title-label">标题(≤20 字)</label>
           <input id="pub-title" maxlength="20" placeholder="给作品起个标题">
         </div>
         <div>

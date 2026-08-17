@@ -288,5 +288,38 @@ class WechatMpTests(unittest.TestCase):
         self.assertIn('name="auto_gen_digest0"', body)
 
 
+class ArticleSessionFactoryTests(unittest.TestCase):
+    """registry.article_session 工厂:app 层与引擎体检共用的唯一入口。"""
+
+    def test_factory_maps_platforms(self):
+        from application.registry import article_session
+        cls, kw = article_session("baijiahao", "a=1; b=2")
+        self.assertIs(cls, BaijiahaoSession)
+        self.assertEqual(kw, {"cookie": "a=1; b=2"})
+        cls, kw = article_session("toutiao", "sid=x")
+        self.assertIs(cls, ToutiaoSession)
+        cls, kw = article_session("wechat_mp", "slave_sid=y||123456")
+        self.assertIs(cls, WechatMpSession)
+        self.assertEqual(kw, {"cookie": "slave_sid=y", "token": "123456"})
+
+
+class RollingCookieTests(unittest.TestCase):
+    """Cookie 滚动续期:凭证形态与合并语义。"""
+
+    def test_wechat_stored_credentials_keeps_token(self):
+        s = WechatMpSession(cookie="slave_sid=y", token="123456")
+        self.assertEqual(s.stored_credentials("slave_sid=z; new=1"),
+                         "slave_sid=z; new=1||123456")
+
+    def test_default_stored_credentials_passthrough(self):
+        s = BaijiahaoSession(cookie="BDUSS=x")
+        self.assertEqual(s.stored_credentials("BDUSS=y"), "BDUSS=y")
+
+    def test_merge_overwrites_same_name_keeps_rest(self):
+        base = ArticlePlatformSession.parse_cookie("a=1; b=2; c=3")
+        updated = {**base, **{"b": "9", "d": "4"}}
+        self.assertEqual(updated, {"a": "1", "b": "9", "c": "3", "d": "4"})
+
+
 if __name__ == "__main__":
     unittest.main()

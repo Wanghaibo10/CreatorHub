@@ -60,6 +60,10 @@ class WechatMpSession(ArticlePlatformSession):
         self.token = (token or "").strip()
         self.sess: dict = {}          # uin / ticket / gh / nick
 
+    def stored_credentials(self, new_cookie: str) -> str:
+        """公众号凭证是 "cookie||token" 合并存一列,滚动续期回写时补上 token。"""
+        return f"{new_cookie}||{self.token}" if self.token else new_cookie
+
     def _headers(self, **extra) -> dict:
         return self.base_headers(
             Origin=MP,

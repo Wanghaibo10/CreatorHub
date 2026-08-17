@@ -170,6 +170,49 @@ class ArticlePlatformSession(AsyncMCurlSession):
                     out[k.strip()] = v.strip()
         return out
 
+    # ── Cookie 滚动续期 ────────────────────────────────────────────────────
+    def stored_credentials(self, new_cookie: str) -> str:
+        """回写数据库的凭证形态。默认就是 Cookie 串;公众号覆盖成 cookie||token。"""
+        return new_cookie
+
+    def _persist_rolling_cookie(self) -> None:
+        """会话期间服务端下发过新 Set-Cookie 就合并回写账号——滚动续期,
+        让「发文/判活/体检」每一次请求都顺带延长登录态寿命。"""
+        if not self.account_id or not self.cookie:
+            return
+        try:
+            fresh = {k: v for k, v in (self.cookies_dict() or {}).items() if k}
+        except Exception:
+            return                    # 同名多域冲突等取不出来,放弃这次续期
+        if not fresh:
+            return
+        base = self.parse_cookie(self.cookie)
+        updated = {**base, **fresh}
+        if updated == base:
+            return                    # 服务端没刷新任何东西
+        merged = "; ".join(f"{k}={v}" for k, v in updated.items())
+        try:
+            from moss.common.db import get_session
+            from moss.model import DouyinAccount
+            from application.browser.manager import cookie_string_to_state
+            with get_session() as s:
+                acc = s.get(DouyinAccount, self.account_id)
+                if acc is None:
+                    return
+                acc.cookie = self.stored_credentials(merged)
+                acc.storage_state = cookie_string_to_state(merged, self.PLATFORM)
+                s.add(acc); s.commit()
+            logger.info(f"{self.label} 账号 {self.account_id} Cookie 已滚动续期"
+                        f"({len(updated) - len(base)} 新增/{len(fresh)} 刷新)")
+        except Exception as e:
+            logger.warning(f"{self.label} Cookie 续期回写失败(不影响本次请求): {e!r}")
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        try:
+            self._persist_rolling_cookie()
+        finally:
+            return await super().__aexit__(exc_type, exc_val, exc_tb)
+
     async def json_or_raise(self, response, what: str) -> dict:
         """平台接口偶尔在风控/登录失效时回 HTML 登录页,这里统一拦成可读错误。"""
         text = response.text

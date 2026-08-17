@@ -502,16 +502,9 @@ async def _check_article_account(account_id: int) -> dict:
 
 
 def _article_session(platform: str, cookie: str):
-    """按平台挑协议客户端。公众号的凭证是 "cookie||token" 两样,这里拆开。"""
-    from application.baijiahao import BaijiahaoSession
-    from application.toutiao import ToutiaoSession
-    from application.wechat_mp import WechatMpSession, split_creds
-    if platform == "baijiahao":
-        return BaijiahaoSession, {"cookie": cookie}
-    if platform == "toutiao":
-        return ToutiaoSession, {"cookie": cookie}
-    ck, tk = split_creds(cookie)
-    return WechatMpSession, {"cookie": ck, "token": tk}
+    """按平台挑协议客户端(工厂已下沉 registry,与引擎体检共用)。"""
+    from application.registry import article_session
+    return article_session(platform, cookie)
 
 
 @router.post("/api/accounts/{account_id}/relogin/start")

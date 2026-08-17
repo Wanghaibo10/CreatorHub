@@ -97,20 +97,27 @@ class ScanOps:
         self._last_acct_check = time.time()
         with get_session() as s:
             accs = []
+            article_accs = []
             for a in s.exec(select(DouyinAccount)).all():
-                if not (a.storage_state or a.creator_storage_state):
-                    continue
-                if a.platform in ARTICLE_KEYS:
-                    # 图文平台是纯 HTTP 死 Cookie,下面的浏览器体检全是视频平台
-                    # 语义——拿百度/微信 Cookie 逛抖音必成游客态,会把账号误标
-                    # invalid。判活走 /api/accounts/{id}/check-article-login。
-                    continue
                 if a.status == "invalid":
                     continue                       # 已失效:摸也救不活,等用户重登,别白发请求
                 if not self._keepalive_due(a.last_active_at):
                     continue                       # 近期已被监控/发布/上轮保活摸过,跳过
+                if a.platform in ARTICLE_KEYS:
+                    # 图文平台不能走下面的视频式浏览器体检(拿百度/微信 Cookie
+                    # 逛抖音必成游客态,会误标 invalid)。改走纯 HTTP 判活:
+                    # 每次请求顺带滚动续期(base.py),掉线先无头浏览器自动复活,
+                    # 救不活才标 invalid 推提醒。
+                    if a.cookie:
+                        article_accs.append((a.id, a.platform, a.cookie,
+                                             a.proxy or "", a.ua or "",
+                                             self.browser.identity_for(a)))
+                    continue
+                if not (a.storage_state or a.creator_storage_state):
+                    continue
                 accs.append((a.id, a.platform, a.storage_state, a.creator_storage_state,
                              a.proxy or "", self.browser.identity_for(a)))
+        await self._check_article_accounts(article_accs)
         for aid, platform, state, creator_state, proxy, identity in accs:
             decision = self.risk.preflight(aid, OperationKind.READ_LIGHT)
             if not decision.allowed:
@@ -191,6 +198,102 @@ class ScanOps:
                     self._write_stat_snapshot(aid, platform, [])
                 except Exception:
                     pass
+
+    async def _check_article_accounts(self, article_accs: list) -> None:
+        """图文平台账号体检:纯 HTTP 判活(会话退出时自动滚动续期 Cookie)。
+
+        判活失败(AuthExpired)先带旧 Cookie 无头访问后台换新 Cookie(自动
+        复活,免人工重登);真掉线才标 invalid + 推通知。invalid 后不再体检,
+        所以掉线只提醒一次。风控/网络错误保持原状态,交梯度冷却。"""
+        from application.base import AuthExpired, PlatformError
+        from application.registry import article_session, label as pf_label
+        for aid, platform, cookie, proxy, ua, identity in article_accs:
+            if not self.risk.preflight(aid, OperationKind.READ_LIGHT).allowed:
+                continue
+            alive = None
+            nickname = ""
+            try:
+                async with self._operation_guard(aid, OperationKind.READ_LIGHT):
+                    session_cls, kw = article_session(platform, cookie)
+                    try:
+                        async with session_cls(proxy=proxy, ua=ua,
+                                               account_id=aid, **kw) as api:
+                            info = await api.check_login()
+                        alive = True
+                        nickname = str(info.get("nickname") or "")
+                        self.risk.record_success(aid, OperationKind.READ_LIGHT)
+                    except AuthExpired:
+                        alive = await self._revive_article_cookie(
+                            aid, platform, cookie, identity)
+            except PlatformError as exc:
+                # 风控/网络类:不知真假,保持原状态,交给梯度冷却下轮再看
+                self.risk.record_failure(aid, OperationKind.READ_LIGHT, exc)
+                continue
+            except Exception as exc:
+                self.risk.record_failure(aid, OperationKind.READ_LIGHT, exc)
+                log.warning("图文账号 %s 体检异常: %r", aid, exc)
+                continue
+            label = ""
+            with get_session() as s:
+                a = s.get(DouyinAccount, aid)
+                if not a:
+                    continue
+                label = a.nickname or f"账号{aid}"
+                if alive:
+                    a.status = "active"
+                    a.last_active_at = datetime.utcnow()
+                    if nickname:
+                        a.nickname = nickname
+                else:
+                    a.status = "invalid"
+                s.add(a); s.commit()
+            if not alive:
+                log.warning("图文账号 %s(%s)登录态失效,自动续期也未救回", aid, label)
+                try:
+                    with get_session() as s:
+                        chans = s.exec(select(NotificationChannel)
+                                       .where(NotificationChannel.enabled == True)).all()  # noqa: E712
+                        channels = [{"type": c.type, "config": _loads(c.config)}
+                                    for c in chans]
+                    if channels:
+                        await notify_all(
+                            channels, f"{pf_label(platform)}账号掉线",
+                            f"{label} 的 Cookie 已失效,自动续期未成功,"
+                            f"请到面板重新登录")
+                except Exception as e:
+                    log.warning(f"掉线提醒发送失败: {e!r}")
+
+    async def _revive_article_cookie(self, aid: int, platform: str,
+                                     cookie: str, identity) -> bool:
+        """HTTP 判活失败后的自动复活:带旧 Cookie 无头访问平台后台。
+
+        长效凭证还活着时后台会重新下发整套新 Cookie,抓下来回写即等于免
+        人工重登;跳登录页则真掉线,返回 False。"""
+        from application.browser.login import refresh_article_cookie
+        tk = ""
+        ck = cookie
+        if platform == "wechat_mp":
+            from application.wechat_mp import split_creds
+            ck, tk = split_creds(cookie)
+        try:
+            ok, new_cookie, new_token = await refresh_article_cookie(
+                self.browser, identity, platform, ck)
+        except Exception as exc:
+            log.warning("图文账号 %s Cookie 复活尝试异常: %r", aid, exc)
+            return False
+        if not ok:
+            return False
+        raw = (f"{new_cookie}||{new_token or tk}" if platform == "wechat_mp"
+               else new_cookie)
+        from application.browser.manager import cookie_string_to_state
+        with get_session() as s:
+            a = s.get(DouyinAccount, aid)
+            if a:
+                a.cookie = raw
+                a.storage_state = cookie_string_to_state(new_cookie, platform)
+                s.add(a); s.commit()
+        log.info("图文账号 %s(%s)Cookie 已无头浏览器自动续期", aid, platform)
+        return True
 
     async def _check_work_health(self):
         """定期同步本账号作品,检测「持续0播 / 违规下架」并推送;顺带写每日数据快照。

@@ -676,3 +676,60 @@ async def interactive_article_login(mgr: BrowserManager, identity: Identity,
         with suppress(Exception):
             await ctx.close()
     return ok and bool(cookie_str), cookie_str, token
+
+
+async def refresh_article_cookie(mgr: BrowserManager, identity: Identity,
+                                 platform: str, cookie_str: str,
+                                 timeout_seconds: int = 25,
+                                 ) -> Tuple[bool, str, str]:
+    """图文平台 Cookie 自动复活:带旧 Cookie **无头**访问平台后台。
+
+    长效凭证(百度 BDUSS / 头条 sessionid / 公众号会话)还活着时,后台会
+    重新下发一整套新 Cookie——抓下来即等于免人工重登。跳到登录页则是真
+    掉线,返回 ok=False 交调用方提醒用户。返回 (ok, new_cookie_str, token)。"""
+    from application.registry import spec as _pf_spec
+    conf = _ARTICLE_LOGIN[platform]
+    dom = _pf_spec(platform).cookie_domain
+    home = _pf_spec(platform).home_url
+    ctx = await mgr.open_headless(identity)
+    ok = False
+    new_cookie = ""
+    token = ""
+    try:
+        pairs = [(p.split("=", 1)[0].strip(), p.split("=", 1)[1].strip())
+                 for p in cookie_str.split(";") if "=" in p]
+        await ctx.add_cookies([{"name": k, "value": v, "domain": dom, "path": "/"}
+                               for k, v in pairs if k])
+        page = await ctx.new_page()
+        await page.goto(home, wait_until="domcontentloaded", timeout=20000)
+        waited = 0.0
+        while waited < timeout_seconds:
+            if page.is_closed():
+                break
+            url = str(page.url or "")
+            if platform == "wechat_mp":
+                token = (parse_qs(urlparse(url).query).get("token") or [""])[0]
+                if token:
+                    ok = True
+                    break
+            elif "login" not in url.lower():
+                # URL 已在后台还不够(可能是跳转中间态),关键 Cookie 也要真在
+                try:
+                    names = {c["name"] for c in await ctx.cookies()}
+                except Exception:
+                    break
+                if names & conf["ready_cookies"]:
+                    ok = True
+                    break
+            await asyncio.sleep(1)
+            waited += 1
+        if ok:
+            await page.wait_for_timeout(1000)   # 等后台把整套新 Cookie 写完
+            new_cookie = _join_cookies(await ctx.cookies(),
+                                       conf["cookie_host_suffix"])
+    finally:
+        with suppress(Exception):
+            await ctx.close()
+        with suppress(Exception):
+            await mgr.close_context(identity.key)
+    return ok and bool(new_cookie), new_cookie, token

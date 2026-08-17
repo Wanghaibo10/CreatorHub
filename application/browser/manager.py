@@ -729,6 +729,11 @@ class BrowserManager:
                                 CHROMIUM_WINDOW_CLASSES, "", 1.5)
         return ctx
 
+    async def open_headless(self, identity: Identity) -> BrowserContext:
+        """无头持久 context(后台自动刷新图文平台 Cookie 用,不弹窗不打扰)。"""
+        await self.close_context(identity.key)
+        return await self._launch_persistent(identity, headless=True)
+
     @asynccontextmanager
     async def temporary_headed_context(self, identity: Identity):
         """Lease a visible persistent context and always save/close it afterwards."""

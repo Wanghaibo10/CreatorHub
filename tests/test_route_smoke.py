@@ -72,6 +72,30 @@ class RouteSmokeTests(unittest.TestCase):
         r = self.client.post("/api/login/article/start?platform=baijiahao")
         self.assertEqual(r.status_code, 503, r.text)
 
+    def test_article_publish_task_creation_allowed(self):
+        # 曾经的阻断故障:/api/publish 平台白名单只认四个视频平台,图文账号
+        # 建任务直接 400——引擎里的图文发布分发根本进不去。标题也曾被 [:20]
+        # 静默截断(图文平台上限 64)。
+        from moss.model import DouyinAccount
+        from moss.common.db import get_session
+        with get_session() as s:
+            acc = DouyinAccount(platform="baijiahao", nickname="图文冒烟",
+                                status="active", cookie="BDUSS=x",
+                                storage_state="{}")
+            s.add(acc); s.commit(); s.refresh(acc)
+            acc_id = acc.id
+        cover = f"{self._tmp.name}/cover.jpg"
+        with open(cover, "wb") as f:
+            f.write(b"\xff\xd8\xff\xe0fake")
+        long_title = "标" * 40
+        r = self.client.post("/api/publish", json={
+            "account_id": acc_id, "media_type": "images", "title": long_title,
+            "desc": "# 正文\n内容", "media_paths": [cover]})
+        self.assertEqual(r.status_code, 200, r.text)
+        data = r.json()
+        self.assertEqual(data["platform"], "baijiahao")
+        self.assertEqual(data["title"], long_title)   # 40 字不该被截到 20
+
     def test_collection_create_and_retry_survive_engine_none(self):
         # 曾经的阻断故障:rt 迁移把这两处漏成 `if engine:`(未定义名),POST 必 500。
         # rt.engine 为 None 时不 enqueue,但接口本身必须活着。
