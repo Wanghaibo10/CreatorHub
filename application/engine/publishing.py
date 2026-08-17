@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional
 from sqlmodel import select
 from moss.common.db import get_session
-from application.douyin import publish_douyin
+from application.douyin import publish_douyin, publish_via_http
 from application.xhs import publish_xhs
 from application.kuaishou import publish_kuaishou
 from application.channels import publish_channels
@@ -138,12 +138,13 @@ class PublishOps:
                 self._defer_row(t, "账号代理当前不可用", fallback_seconds=300)
                 s.add(t); s.commit()
                 return {"ok": False, "error": "proxy unavailable"}
-            # 图文平台走纯 HTTP,压根不开浏览器,过不了「系统 Chrome + 有头页面 +
-            # 独立 Profile」这道为浏览器写操作设的门禁——对它们豁免这一项。
+            # 图文平台 / 抖音协议发布走纯 HTTP,压根不开浏览器,过不了
+            # 「系统 Chrome + 有头页面 + 独立 Profile」这道为浏览器写操作设的门。
+            # 抖音失败会回落浏览器,那时候再查环境。
             # 只豁免浏览器环境:代理、写暂停、活跃时段、风控 preflight 照走,账本统一。
-            # 按任务平台判(与下方分发同口径):是否需要浏览器由「要发到哪」决定
             is_article = platform_spec(t.platform).kind == "article"
-            environment_error = None if is_article else \
+            skip_browser_env = is_article or t.platform == "douyin"
+            environment_error = None if skip_browser_env else \
                 self._native_write_environment_error(acc, headed=True, browser_mode=True)
             if environment_error:
                 self._defer_row(t, environment_error, fallback_seconds=300)
@@ -234,15 +235,36 @@ class PublishOps:
             return await self._finish_publish(task_id, ok, url, err, platform="shipinhao")
 
         if platform == "douyin":
-            # 抖音发布:同快手走浏览器自动化,登录态在该账号持久 profile 里
+            # 视频走纯协议 create_v2(2026-08-17 抓包真源)。失败再回落有头浏览器。
             if not state:
                 return await self._finish_publish(
                     task_id, False, "", "该账号未完成抖音「创作者登录」,请先在账号页点「创作者登录」")
+            video = next((f for f in files if f), "")
+            if media_type != "images" and video:
+                try:
+                    ok, url, err = await publish_via_http(
+                        state, video, title, desc, topics=topics,
+                        visibility=visibility, allow_save=allow_save,
+                        ua=article_ua, proxy=article_proxy)
+                except Exception as e:
+                    ok, url, err = False, "", f"协议发布异常: {e!r}"
+                if ok:
+                    return await self._finish_publish(
+                        task_id, ok, url, err, platform="douyin")
+                log.warning("抖音纯协议失败,回落浏览器: %s", err)
+            with get_session() as s:
+                acc2 = s.get(DouyinAccount, t_account_id)
+                env_err = self._native_write_environment_error(
+                    acc2, headed=True, browser_mode=True)
+            if env_err:
+                return await self._finish_publish(
+                    task_id, False, "", env_err, platform="douyin")
             try:
-                ok, url, err = await publish_douyin(self.browser, identity, state,
-                                                    media_type, title, desc, files,
-                                                    topics=topics, visibility=visibility,
-                                                    allow_save=allow_save, headed=True)
+                ok, url, err = await publish_douyin(
+                    self.browser, identity, state,
+                    media_type, title, desc, files,
+                    topics=topics, visibility=visibility,
+                    allow_save=allow_save, headed=True)
             except Exception as e:
                 ok, url, err = False, "", f"发布异常: {e!r}"
             return await self._finish_publish(task_id, ok, url, err, platform="douyin")

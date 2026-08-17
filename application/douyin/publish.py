@@ -9,15 +9,18 @@
    发布时弹真实窗口,遇滑块验证 / 需补封面 / 定位话题必填可在窗口里手动处理。
 
 调试:失败(含「已点发布但未确认成功」)时会把截图 + 页面 URL/文本快照写到
-   data/debug/dy_publish_*.{png,txt},并在服务端控制台打印 [dy-publish] 日志。
-   抖音创作平台改版频繁,首次真机发布基本都要据此把选择器校准一次。
+   data/debug/dy_publish_*.{png,txt};每次发布另外落
+   data/debug/dy_publish_net_*.json(creator/VOD 请求,cookie 已打码),
+   给纯协议对照。
 """
 from __future__ import annotations
 
 import asyncio
+import json
+import re
 from datetime import datetime
 from pathlib import Path
-from typing import List, Tuple
+from typing import Any, List, Tuple
 
 from application.browser.identity import Identity
 from application.browser.manager import BrowserManager
@@ -39,13 +42,24 @@ _DESC_SEL = ['.editor-kit-editor-container [contenteditable="true"]',
              'div[contenteditable="true"]', '.zone-container',
              'textarea[placeholder*="简介"]', 'textarea']
 # 最终提交按钮(排除「定时发布」等干扰,后面再按 enabled + 文本精确过滤)
-_PUBLISH_BTN = ['button:has-text("发布")', 'button:has-text("发布作品")',
-                'div[class*="content-confirm"] button', '.publish-btn button', '.button-publish']
+#: 必须精确匹配。has-text("发布") 会点到步骤条「发布完成」(2026-08-17 误点)。
+_PUBLISH_BTN = ['button:text-is("发布")', 'button:text-is("发布作品")',
+                'button:text-is("发布视频")']
 
 _DEBUG_DIR = Path("./data/debug")
+#: 浏览器发布时顺手抓这些域,给后面纯协议用
+_SNIFF_HOST = re.compile(
+    r"creator\.douyin\.com|vod\.bytedanceapi\.com|imagex\.bytedanceapi\.com|"
+    r"bytevod|tos-cn-|tos-d-|tos-ali-|tos-lq-|byteimg\.com|upload\.bytedance",
+    re.I)
+_SECRET_RE = re.compile(
+    r"(?i)(cookie|authorization|sessiontoken|secretaccesskey|sessionid|"
+    r"sid_guard|sid_tt|passport_csrf_token|x-amz-security-token)"
+    r"(\s*[:=]\s*)([^\s,&\"]+)")
 
-# 发布成功信号(文案任一命中即算成功)
-_SUCCESS_KW = ("发布成功", "作品发布成功", "投稿成功", "发布完成", "已发布", "审核中")
+# 发布成功信号。⚠️ 不要用「发布完成」——编辑页步骤条就有这四字,
+# 2026-08-17 点发布同一秒误判成功,create 请求还没发出。
+_SUCCESS_KW = ("作品发布成功", "投稿成功", "发布成功")
 # 抖音风控人工验证(短信验证码 / 扫码 / 滑块):需用户在弹出窗口里手动完成,不能自动化
 _VERIFY_KW = ("接收短信验证码", "短信验证码", "为确保是本人操作", "输入验证码",
               "安全验证", "完成验证", "拖动滑块", "使用原设备扫码", "身份验证")
@@ -53,6 +67,85 @@ _VERIFY_KW = ("接收短信验证码", "短信验证码", "为确保是本人操
 
 def _log(msg: str) -> None:
     log.info(f"[dy-publish] {msg}")
+
+
+def _redact(text: str) -> str:
+    return _SECRET_RE.sub(r"\1\2***", text or "")
+
+
+class _NetSniff:
+    """把创作平台/VOD 请求落到 data/debug,不存二进制、不存 cookie 原文。"""
+
+    def __init__(self) -> None:
+        self.rows: list[dict[str, Any]] = []
+
+    def attach(self, page) -> None:
+        page.on("request", self._on_req)
+        page.on("response", lambda resp: asyncio.ensure_future(self._on_res(resp)))
+
+    def _on_req(self, req) -> None:
+        url = req.url or ""
+        if not _SNIFF_HOST.search(url):
+            return
+        body = ""
+        try:
+            body = req.post_data or ""
+        except Exception:
+            body = ""
+        if len(body) > 4000:
+            body = body[:4000] + "…(trunc)"
+        if body and not body[:1] in "{[\"'" and "=" not in body[:80]:
+            body = f"<binary {len(body)}>"
+        self.rows.append({
+            "t": datetime.now().isoformat(timespec="seconds"),
+            "phase": "request",
+            "method": req.method,
+            "url": _redact(url),
+            "resource": getattr(req, "resource_type", ""),
+            "post": _redact(body) if body else "",
+        })
+
+    async def _on_res(self, resp) -> None:
+        url = resp.url or ""
+        if not _SNIFF_HOST.search(url):
+            return
+        snippet = ""
+        ctype = (resp.headers or {}).get("content-type", "")
+        if "json" in ctype or "text" in ctype or "javascript" in ctype:
+            try:
+                raw = await resp.text()
+                snippet = _redact(raw[:2500] if raw else "")
+            except Exception:
+                snippet = ""
+        self.rows.append({
+            "t": datetime.now().isoformat(timespec="seconds"),
+            "phase": "response",
+            "method": resp.request.method,
+            "url": _redact(url),
+            "status": resp.status,
+            "content_type": ctype,
+            "body": snippet,
+        })
+
+    def flush(self, tag: str = "net") -> str:
+        if not self.rows:
+            return ""
+        _DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = _DEBUG_DIR / f"dy_publish_{tag}_{stamp}.json"
+        interesting = [r for r in self.rows
+                       if r.get("method") in ("POST", "PUT", "GET")
+                       and any(k in (r.get("url") or "") for k in (
+                           "/auth", "ApplyUpload", "CommitUpload", "/upload/",
+                           "aweme/create", "create_v2", "item/create", "item/post",
+                           "video/enable"))]
+        path.write_text(json.dumps({
+            "n": len(self.rows),
+            "highlight": interesting,
+            "all": self.rows,
+        }, ensure_ascii=False, indent=1), encoding="utf-8")
+        _log(f"抓包 {len(self.rows)} 条(关键 {len(interesting)}) → {path}")
+        return str(path)
 
 
 async def _visible_any(page, keywords) -> str:
@@ -150,6 +243,18 @@ async def _primary_publish_button(page):
     return cand
 
 
+def _saw_create(sniff: _NetSniff) -> str:
+    """抓包里有没有真正的投稿请求。"""
+    for r in sniff.rows:
+        if r.get("phase") != "request" or r.get("method") != "POST":
+            continue
+        u = r.get("url") or ""
+        if re.search(r"create_v2|/media/aweme/create|/aweme/create|/item/post|"
+                     r"/item/create|/video/create|/work/publish", u, re.I):
+            return u.split("?")[0]
+    return ""
+
+
 async def _dump_radios(page) -> None:
     """把页面上疑似单选项/可点标签的真实文案打出来,便于按实际文案校准。"""
     try:
@@ -216,11 +321,15 @@ async def publish_douyin(mgr: BrowserManager, identity: Identity,
                          storage_state_json: str, media_type: str, title: str,
                          desc: str, media_paths: List[str], topics: str = "",
                          visibility: str = "public", allow_save: bool = True,
-                         headed: bool = True, timeout_seconds: int = 180
+                         headed: bool = True, timeout_seconds: int = 180,
+                         ua: str = "", proxy: str = ""
                          ) -> Tuple[bool, str, str]:
     """发布一条抖音作品。返回 (ok, result_url, error)。
-    storage_state_json 仅用于校验(实际登录态在该账号持久 profile 里)。
-    visibility: public 公开 | friends 好友可见 | private 仅自己可见;allow_save: 是否允许他人保存。"""
+
+    先走浏览器自动化,同时把 creator/VOD 请求落到 data/debug/dy_publish_net_*.json,
+    给后面纯协议用。storage_state 只作登录校验,实际态在账号 profile。
+    visibility: public 公开 | friends 好友可见 | private 仅自己可见。
+    """
     files = [str(Path(p)) for p in media_paths if p and Path(p).exists()]
     if not files:
         return False, "", "没有可用的本地媒体文件(路径不存在)"
@@ -230,6 +339,8 @@ async def publish_douyin(mgr: BrowserManager, identity: Identity,
 
     ctx = await mgr.open_headed(identity)
     page = await ctx.new_page()
+    sniff = _NetSniff()
+    sniff.attach(page)
 
     # 保险:媒体上传我们全用 set_input_files(不触发 filechooser),故任何 filechooser
     # 事件都是意外(比如误点了「继续添加/封面」的 <input type=file>),自动取消避免卡死。
@@ -283,9 +394,34 @@ async def publish_douyin(mgr: BrowserManager, identity: Identity,
         await _apply_publish_settings(page, visibility, allow_save)
         await page.wait_for_timeout(600)
 
-        # 轮询等「发布」按钮可用(视频未处理完时按钮 disabled),最多 ~90s
+        #: 视频等上传结束/转码回执。不用 wait_for_response:
+        #: 页面一跳 Playwright 就抛,默认 30s 还会把还在传的片子掐掉
+        #: (2026-08-17 22:14: 5 片 transfer 没 finish 就被判失败)。
+        def _video_ready() -> str:
+            for r in sniff.rows:
+                if r.get("phase") != "response" or r.get("status") != 200:
+                    continue
+                u = r.get("url") or ""
+                if "/web/api/media/video/enable/" in u:
+                    return "enable"
+                if "CommitUploadInner" in u or "phase=finish" in u:
+                    return "finish"
+            return ""
+
+        if media_type == "video":
+            ready = ""
+            for _ in range(90):
+                ready = _video_ready()
+                if ready:
+                    _log(f"视频就绪信号 {ready}")
+                    break
+                await page.wait_for_timeout(2000)
+            if not ready:
+                _log("180s 内没看到 enable/finish,改等发布按钮是否可点")
+
+        # 轮询等「发布」按钮可用(视频未处理完时按钮 disabled),最多 ~180s
         btn = None
-        for _ in range(45):
+        for _ in range(90):
             btn = await _primary_publish_button(page)
             if btn is not None:
                 try:
@@ -310,18 +446,31 @@ async def publish_douyin(mgr: BrowserManager, identity: Identity,
 
         # 成功判定 + 风控验证等待:抖音点发布后常弹「短信验证码/扫码」要本人操作,
         # 这时必须把弹出的窗口留给用户手动完成,故轮询等待、给足时间(默认最多 5 分钟)。
+        # 确认弹层只点「确认/确定」。name=发布 会误点导航/步骤条,
+        # 上次因此跳到 manage?enter_from=publish 却没发 create_v2。
+        with suppress(Exception):
+            dlg = page.get_by_role("button", name=re.compile(r"^(确认|确定)$"))
+            if await dlg.count():
+                await dlg.last.click(timeout=2000)
+                _log("点了确认弹层")
+
         ok = False
         deadline = max(int(timeout_seconds), 300)   # 秒;留足人工验证时间
         waited, verify_notified = 0, False
         while waited < deadline:
-            if "/content/manage" in page.url:
+            created = _saw_create(sniff)
+            if created:
                 ok = True
+                _log(f"抓到投稿请求 {created}")
+                await page.wait_for_timeout(2000)
                 break
             hit = await _visible_any(page, _SUCCESS_KW)
             if hit:
                 ok = True
                 _log(f"命中成功文案「{hit}」")
                 break
+            if any(k in page.url for k in ("/content/manage", "/work_list")):
+                _log(f"到了作品管理但还没抓到 create_v2: {page.url}")
             vkw = await _visible_any(page, _VERIFY_KW)
             if vkw and not verify_notified:
                 verify_notified = True
@@ -346,6 +495,8 @@ async def publish_douyin(mgr: BrowserManager, identity: Identity,
             await _dump(page, "exception")
         error = f"发布异常: {e!r}"
     finally:
+        with suppress(Exception):
+            sniff.flush()
         with suppress(Exception):
             await ctx.close()
     return ok, result_url, error

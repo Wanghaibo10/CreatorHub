@@ -3,6 +3,9 @@ from application.douyin.extract import (parse_aweme, parse_comment, parse_creato
 from application.douyin.resolve import resolve_sec_uid, resolve_aweme_id, looks_like_video
 from application.douyin.qrlogin import QRLoginSession
 from application.douyin.publish import publish_douyin
+from application.douyin.api import (  # noqa: F401
+    DouyinAPI, DouyinAPIError, cookies_from_account, cookies_from_state,
+    publish_via_http)
 
 __all__ = [
     "DouyinClient", "cookie_from_state",
@@ -11,4 +14,5 @@ __all__ = [
     "parse_self_user", "safe_title", "Aweme", "MediaItem",
     "resolve_sec_uid", "resolve_aweme_id", "looks_like_video", "QRLoginSession",
     "publish_douyin",
+    "DouyinAPI", "DouyinAPIError", "cookies_from_account", "publish_via_http",
 ]
