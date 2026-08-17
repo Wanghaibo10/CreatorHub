@@ -116,7 +116,11 @@ async def add_publish(body: PublishIn):
             raise HTTPException(400, "请选择一个已登录的账号")
         pname = platform_label(acc.platform)
         if acc.platform in ARTICLE_KEYS:
-            # 图文平台(百家号/头条/公众号):纯协议发布,凭证是账号 Cookie
+            # 图文平台(百家号/头条/公众号):纯协议发布,凭证是账号 Cookie。
+            # 微博是纯登录态管理平台(publish_via="none"),不接发布
+            from application.registry import spec as _spec
+            if _spec(acc.platform).publish_via == "none":
+                raise HTTPException(400, f"{pname} 仅做登录态管理,不支持发布")
             if not acc.cookie:
                 raise HTTPException(400, f"该{pname}账号没有 Cookie,请先在账号页登录")
         elif acc.platform in ("kuaishou", "douyin", "shipinhao"):

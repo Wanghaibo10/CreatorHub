@@ -27,11 +27,14 @@ def run(coro):
 
 class RegistryTests(unittest.TestCase):
     def test_article_platforms_registered(self):
-        self.assertEqual(ARTICLE_KEYS, ("baijiahao", "toutiao", "wechat_mp"))
+        self.assertEqual(ARTICLE_KEYS,
+                         ("baijiahao", "toutiao", "wechat_mp", "weibo"))
         for key in ARTICLE_KEYS:
             s = spec(key)
             self.assertEqual(s.kind, "article")
-            self.assertEqual(s.publish_via, "http")
+            # 微博仅登录态管理不发布;其余图文平台都是纯 HTTP 发布
+            self.assertEqual(s.publish_via,
+                             "none" if key == "weibo" else "http")
             # 图文平台都不支持监控他人作品,别被默认值带进监控调度
             self.assertFalse(s.can_monitor_others)
             self.assertIn("cookie", s.login_methods)
@@ -296,6 +299,44 @@ class WechatMpTests(unittest.TestCase):
         self.assertIn('name="count"', body)
         # 摘要留空必须两个字段一起,否则微信自动补摘要
         self.assertIn('name="auto_gen_digest0"', body)
+
+
+class _FakeResp:
+    def __init__(self, payload):
+        self.text = json.dumps(payload)
+        self.status_code = 200
+
+
+class WeiboTests(unittest.TestCase):
+    """微博:仅登录态管理(publish_via=none),判活走 /ajax/config。"""
+
+    def _session(self, cookie="SUB=x"):
+        from application.weibo import WeiboSession
+        return WeiboSession(cookie)
+
+    def test_check_login_ok_with_days_left(self):
+        import time
+        alf = int(time.time()) + 30 * 86400
+        api = self._session(f"SUB=x; ALF={alf}")
+        api.get = AsyncMock(side_effect=[
+            _FakeResp({"data": {"login": True, "uid": "5551112223"}}),
+            _FakeResp({"data": {"user": {"screen_name": "乌云"}}}),
+        ])
+        info = run(api.check_login())
+        self.assertEqual(info["uid"], "5551112223")
+        self.assertEqual(info["nickname"], "乌云")
+        self.assertAlmostEqual(info["days_left"], 30.0, delta=0.2)
+
+    def test_logged_out_raises_auth(self):
+        api = self._session()
+        api.get = AsyncMock(return_value=_FakeResp({"data": {"login": False}}))
+        with self.assertRaises(AuthExpired):
+            run(api.check_login())
+
+    def test_registry_declares_weibo(self):
+        self.assertIn("weibo", ARTICLE_KEYS)
+        self.assertIn("weibo", COOKIE_LOGIN_KEYS)
+        self.assertEqual(spec("weibo").publish_via, "none")
 
 
 class ArticleSessionFactoryTests(unittest.TestCase):

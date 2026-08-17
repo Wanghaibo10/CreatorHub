@@ -614,6 +614,13 @@ _ARTICLE_LOGIN = {
         "ready_cookies": {"slave_sid"},        # 进入后台才有;token 另从 URL 抓
         "cookie_host_suffix": "qq.com",
     },
+    "weibo": {
+        # 未登录访问会跳 passport.weibo.com/sso/signin(URL 不含 "login"),
+        # 所以判定全靠 SUB——它只在登录成功后写入
+        "start_url": "https://weibo.com/",
+        "ready_cookies": {"SUB"},
+        "cookie_host_suffix": "weibo.com",
+    },
 }
 
 

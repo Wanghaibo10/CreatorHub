@@ -39,7 +39,7 @@ creatorhub/
 7. 测试 mock 时 patch 函数**定义所在模块**；api 层对可 mock 依赖用模块引用
    （`from app.service import account_profile as _profile`）而非 from-import。
 8. 日志用 `from moss.common.logging_setup import get_logger`；不要 print（CLI 工具脚本除外）。
-9. 回归底线：`.venv/bin/python -m pytest tests/ -q` 须 **399 passed**
+9. 回归底线：`.venv/bin/python -m pytest tests/ -q` 须 **403 passed**
    （test_xhs_login_flow 的 2 个失败是 patchright 1.60.1 版本差异的既有问题）。
    tests/test_static_hygiene.py 会跑 pyflakes 全仓扫 undefined name——
    新增代码先过 `.venv/bin/python -m pyflakes <文件>` 再提交。

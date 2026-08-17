@@ -750,6 +750,7 @@ const PF_SPECS = {
   baijiahao: { label: "百家号",     kind: "article", monitor: false, publish: true },
   toutiao:   { label: "今日头条",   kind: "article", monitor: false, publish: true },
   wechat_mp: { label: "微信公众号", kind: "article", monitor: false, publish: true },
+  weibo:     { label: "微博",       kind: "article", monitor: false, publish: false },  // 仅登录态管理,产线热点线用它的 Cookie
 };
 const PF_KEYS = Object.keys(PF_SPECS);
 const PF_NAME = Object.fromEntries(PF_KEYS.map(k => [k, PF_SPECS[k].label]));

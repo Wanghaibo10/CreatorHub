@@ -70,6 +70,12 @@ SPECS: dict[str, PlatformSpec] = {s.key: s for s in [
         cookie_domain="mp.weixin.qq.com", kind="article", publish_via="http",
         can_monitor_others=False, login_methods=("cookie", "browser"),
         publish_note="未认证订阅号群发需扫码,自动线只到草稿箱(建成即视为完成)"),
+    PlatformSpec(
+        key="weibo", label="微博", host="weibo.com",
+        home_url="https://weibo.com/", cookie_domain=".weibo.com",
+        kind="article", publish_via="none",
+        can_monitor_others=False, login_methods=("cookie", "browser"),
+        publish_note="仅登录态管理:产线热点线抓 s.weibo.com 靠它供 Cookie,不做发布"),
 ]}
 
 # 常用派生集合(调用方别再手写平台元组)
@@ -106,6 +112,9 @@ def article_session(platform: str, credentials: str):
     if platform == "toutiao":
         from application.toutiao import ToutiaoSession
         return ToutiaoSession, {"cookie": credentials}
+    if platform == "weibo":
+        from application.weibo import WeiboSession
+        return WeiboSession, {"cookie": credentials}
     from application.wechat_mp import WechatMpSession, split_creds
     ck, tk = split_creds(credentials)
     return WechatMpSession, {"cookie": ck, "token": tk}
