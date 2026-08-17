@@ -23,8 +23,9 @@ class WeiboSession(ArticlePlatformSession):
                                  **{"X-Requested-With": "XMLHttpRequest"})
 
     def cookie_days_left(self) -> float | None:
-        """ALF(Auto-Login-Fail)时间戳 → 剩余天数;没配或解析不出返回 None。"""
-        alf = self.parse_cookie(self.cookie).get("ALF", "")
+        """ALF(Auto-Login-Fail)时间戳 → 剩余天数;没配或解析不出返回 None。
+        实测格式两种:纯时间戳,或带版本前缀如 "02_1789560941"——取尾段。"""
+        alf = self.parse_cookie(self.cookie).get("ALF", "").rsplit("_", 1)[-1]
         if not alf.isdigit():
             return None
         return round((int(alf) - time.time()) / 86400, 1)
