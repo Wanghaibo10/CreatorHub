@@ -9,7 +9,7 @@
 
 ⚠️ 本文件从 moss/common/requests_extension/async_session.py 原样引入（2026-08-17），
    是上游共用基座，**不要在这里加 CreatorHub 的业务逻辑**——平台相关的凭证、
-   风控、错误分类一律写在 app/platforms/base.py 的子类里，这样上游更新可直接覆盖。
+   风控、错误分类一律写在 application/base.py 的子类里，这样上游更新可直接覆盖。
 """
 import json
 import logging

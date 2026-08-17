@@ -592,3 +592,87 @@ async def _read_nickname(page) -> str:
         except Exception:
             continue
     return ""
+
+
+# ── 图文平台(百家号/头条/公众号)浏览器登录 ──
+# 开平台官方后台登录页,用户扫码/输密码,成功后从浏览器上下文抓 Cookie。
+# 图文平台之后走纯 HTTP,只要 Cookie 字符串,不保留浏览器 profile。
+# ⚠️ 判定 Cookie 名/URL 随平台改版可能变化,集中在本表维护。
+_ARTICLE_LOGIN = {
+    "baijiahao": {
+        "start_url": "https://baijiahao.baidu.com/builder/theme/bjh/login",
+        "ready_cookies": {"BDUSS"},            # 百度通行证主凭证
+        "cookie_host_suffix": "baidu.com",
+    },
+    "toutiao": {
+        "start_url": "https://mp.toutiao.com/auth/page/login/",
+        "ready_cookies": {"sessionid", "sessionid_ss", "sid_tt"},
+        "cookie_host_suffix": "toutiao.com",
+    },
+    "wechat_mp": {
+        "start_url": "https://mp.weixin.qq.com/",
+        "ready_cookies": {"slave_sid"},        # 进入后台才有;token 另从 URL 抓
+        "cookie_host_suffix": "qq.com",
+    },
+}
+
+
+def _join_cookies(cookies: list, host_suffix: str) -> str:
+    """把 Playwright cookie 列表按域过滤拼成请求头格式;同名后见覆盖。"""
+    picked: dict[str, str] = {}
+    for c in cookies:
+        domain = (c.get("domain") or "").lstrip(".")
+        if domain == host_suffix or domain.endswith("." + host_suffix):
+            picked[c["name"]] = c["value"]
+    return "; ".join(f"{k}={v}" for k, v in picked.items())
+
+
+async def interactive_article_login(mgr: BrowserManager, identity: Identity,
+                                    platform: str,
+                                    timeout_seconds: int = 300,
+                                    ) -> Tuple[bool, str, str]:
+    """图文平台后台登录。返回 (是否成功, cookie_str, token)。
+
+    成功判定:关键 Cookie 已写入且页面离开登录页;公众号以 URL 出现
+    token= 参数为准(后台所有请求都带它,不在 Cookie 里)。
+    昵称不在这里抓——建号后走各平台 check_login() 顺带取,更可靠。"""
+    conf = _ARTICLE_LOGIN[platform]
+    ctx = await mgr.open_headed(identity)
+    page = await ctx.new_page()
+    await _focus(page)
+    ok = False
+    cookie_str = ""
+    token = ""
+    try:
+        await page.goto(conf["start_url"], wait_until="domcontentloaded",
+                        timeout=30000)
+        await _focus(page)
+        waited = 0.0
+        while waited < timeout_seconds:
+            if page.is_closed():
+                break
+            try:
+                cookies = await ctx.cookies()
+            except Exception:
+                break
+            url = str(page.url or "")
+            if platform == "wechat_mp":
+                token = (parse_qs(urlparse(url).query).get("token") or [""])[0]
+                if token:
+                    ok = True
+                    break
+            else:
+                names = {c["name"] for c in cookies}
+                if (names & conf["ready_cookies"]) and "login" not in url.lower():
+                    ok = True
+                    break
+            await asyncio.sleep(1)
+            waited += 1
+        if ok:
+            await page.wait_for_timeout(1200)   # 等后台首页把剩余 Cookie 写全
+            cookie_str = _join_cookies(await ctx.cookies(),
+                                       conf["cookie_host_suffix"])
+    finally:
+        with suppress(Exception):
+            await ctx.close()
+    return ok and bool(cookie_str), cookie_str, token

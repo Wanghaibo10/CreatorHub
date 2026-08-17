@@ -10,7 +10,7 @@ import string
 
 from curl_cffi.requests import AsyncSession
 
-from app.service.netfp import impersonate_for_ua
+from moss.common.netfp import impersonate_for_ua
 
 _CHARSET = string.ascii_letters + string.digits + "=_-"
 

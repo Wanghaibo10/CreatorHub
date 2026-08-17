@@ -5,7 +5,6 @@ MonitorEngine 的 Mixin(2026-08-17 从 monitor.py 拆出):方法仍属同一个�
 """
 from __future__ import annotations
 
-from __future__ import annotations
 import asyncio
 import json
 import random
@@ -19,9 +18,10 @@ from application.douyin.extract import Aweme, MediaItem
 from application.xhs import (parse_note_brief, parse_note_detail, parse_self_user as parse_xhs_self_user, XhsApiClient, XhsApiError, cookie_str_from_state, has_a1, creator_check)
 from application.kuaishou import parse_ks_feed, parse_self_user as parse_ks_self_user
 from application.channels import parse_self_user as parse_channels_self_user
+from application.registry import ARTICLE_KEYS
 from moss.model import (ContentRecord, DouyinAccount, MonitorTarget, NotificationChannel, AccountWork, AccountStatSnapshot)
 from moss.common.notifier import notify_all
-from app.service.netfp import probe_ip_region
+from moss.common.netfp import probe_ip_region
 from moss.core.risk import classify_platform_error, OperationKind, RiskCategory
 from moss.core.settings import get_setting
 
@@ -29,6 +29,9 @@ from application.engine._helpers import MAX_AUTO_RETRY, _TZ_COUNTRY, _douyin_sca
 
 
 class ScanOps:
+    # 本账号作品健康监控:视为「异常/受限」的状态关键词(命中即告警)
+    _BAD_STATUS = ("违规", "删除", "下架", "不适宜", "限流", "私密", "仅自己", "审核不")
+
     def _stamp_active(self, account_id) -> None:
         """记录账号「刚被成功摸活」的时刻。任何一次成功的网络/浏览器动作都算活跃,
         闲置保活据此跳过近期已活跃的账号,避免重复请求、减少风控暴露面。"""
@@ -96,6 +99,11 @@ class ScanOps:
             accs = []
             for a in s.exec(select(DouyinAccount)).all():
                 if not (a.storage_state or a.creator_storage_state):
+                    continue
+                if a.platform in ARTICLE_KEYS:
+                    # 图文平台是纯 HTTP 死 Cookie,下面的浏览器体检全是视频平台
+                    # 语义——拿百度/微信 Cookie 逛抖音必成游客态,会把账号误标
+                    # invalid。判活走 /api/accounts/{id}/check-article-login。
                     continue
                 if a.status == "invalid":
                     continue                       # 已失效:摸也救不活,等用户重登,别白发请求
@@ -197,7 +205,8 @@ class ScanOps:
         with get_session() as s:
             accs = [(a.id, a.platform, a.sec_uid or "", self.browser.identity_for(a))
                     for a in s.exec(select(DouyinAccount)).all()
-                    if a.status != "invalid" and (a.storage_state or a.creator_storage_state)]
+                    if a.status != "invalid" and a.platform not in ARTICLE_KEYS
+                    and (a.storage_state or a.creator_storage_state)]
         for aid, platform, uid, identity in accs:
             decision = self.risk.preflight(aid, OperationKind.READ_HEAVY)
             if not decision.allowed:

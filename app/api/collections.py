@@ -252,7 +252,7 @@ async def create_keyword_collection(body: KeywordCollectionIn):
         )
         session.add(job); session.commit(); session.refresh(job)
         payload = _collection_job_dict(job)
-    if engine:
+    if rt.engine:
         rt.engine.enqueue_collection_job(job.id)
     return payload
 
@@ -480,7 +480,7 @@ async def retry_keyword_collection(job_id: int):
         job.finished_at = None
         session.add(job); session.commit(); session.refresh(job)
         payload = _collection_job_dict(job)
-    if engine:
+    if rt.engine:
         rt.engine.enqueue_collection_job(job_id)
     return payload
 

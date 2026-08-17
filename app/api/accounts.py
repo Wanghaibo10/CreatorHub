@@ -395,7 +395,7 @@ async def assign_account_proxy(account_id: int):
 async def assign_proxies_all():
     """给所有「尚未配置代理」的账号从池里批量分配(占用最少优先,均衡)。
     池里代理不够时,分到没有为止,返回还差多少。"""
-    assigned, names, pool_empty = 0, [], False
+    assigned, pool_empty = 0, False
     with get_session() as s:
         accs = [a.id for a in s.exec(select(DouyinAccount)).all() if not a.proxy]
     remaining = []

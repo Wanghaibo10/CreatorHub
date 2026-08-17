@@ -14,7 +14,8 @@ from application.browser.identity import Identity
 from moss.core.config import Config, RiskControlConfig, load_config
 from moss.model import (AccountRiskState, CommentTask, CommentWatch, ContentRecord, DouyinAccount, MonitorTarget, ProxyPool, PublishTask, RiskEvent)
 from moss.core.risk import (OperationKind, RiskCategory, RiskController, classify_platform_error, network_key)
-from application.engine.monitor import MonitorEngine, _round_robin_by_account
+from application.engine.monitor import MonitorEngine
+from application.engine._helpers import _round_robin_by_account
 
 
 class _BrowserStub:

@@ -1,6 +1,6 @@
 from application.browser.identity import (Identity, generate_identity_fields, seed_from_id, fingerprint_script)
 from application.browser.manager import BrowserManager, cookie_string_to_state
-from application.browser.login import (interactive_login, interactive_creator_login, interactive_xhs_login, interactive_xhs_creator_login, interactive_ks_login, interactive_ks_creator_login, interactive_channels_login, interactive_channels_creator_login)
+from application.browser.login import (interactive_login, interactive_creator_login, interactive_xhs_login, interactive_xhs_creator_login, interactive_ks_login, interactive_ks_creator_login, interactive_channels_login, interactive_channels_creator_login, interactive_article_login)
 from application.browser.fetcher import (fetch_videos, fetch_douyin_search, fetch_comments, fetch_creator_comments, fetch_danmaku, fetch_creator_danmaku, fetch_self_profile, post_comment_browser)
 from application.browser.xhs_fetcher import (fetch_xhs_notes, fetch_xhs_search, fetch_xhs_note_detail, fetch_xhs_comments, fetch_xhs_self_profile, fetch_creator_published)
 from application.browser.ks_fetcher import (fetch_ks_videos, fetch_ks_comments, fetch_ks_self_profile, post_ks_comment)
@@ -13,6 +13,7 @@ __all__ = ["BrowserManager", "cookie_string_to_state",
            "interactive_xhs_login", "interactive_xhs_creator_login",
            "interactive_ks_login", "interactive_ks_creator_login",
            "interactive_channels_login", "interactive_channels_creator_login",
+           "interactive_article_login",
            "fetch_videos", "fetch_douyin_search", "fetch_comments", "fetch_creator_comments",
            "fetch_danmaku", "fetch_creator_danmaku",
            "fetch_self_profile", "post_comment_browser",

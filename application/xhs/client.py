@@ -15,7 +15,7 @@ import json
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
-from app.service.netfp import impersonate_for_ua
+from moss.common.netfp import impersonate_for_ua
 
 _HOST = "https://edith.xiaohongshu.com"
 _DOMAIN = "https://www.xiaohongshu.com"

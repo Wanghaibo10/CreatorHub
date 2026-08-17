@@ -74,7 +74,7 @@ async def lifespan(app: FastAPI):
             log.info(f"已为 {n} 个存量账号补齐画像(profile/UA/指纹/代理)")
     except Exception as e:
         log.warning(f"账号画像迁移失败(不影响启动): {e!r}")
-    # 运行时状态统一放 rt(app/runtime.py):路由分散在 routers/ 各模块,
+    # 运行时状态统一放 rt(moss/core/runtime.py):路由分散在 app/api/ 各模块,
     # 模块级全局会被拆出去的模块拿到 None 快照,这里是唯一赋值点。
     rt.browser = BrowserManager(
         cfg.engine.user_agent, cfg.engine.profiles_dir,

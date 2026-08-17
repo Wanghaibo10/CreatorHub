@@ -67,6 +67,32 @@ class RouteSmokeTests(unittest.TestCase):
         r = self.client.post("/api/login/browser/start", json={})
         self.assertEqual(r.status_code, 503)   # 浏览器未就绪,而不是 404
 
+    def test_article_browser_login_route(self):
+        # 图文平台浏览器登录入口:浏览器未就绪时 503(而不是 404/422)
+        r = self.client.post("/api/login/article/start?platform=baijiahao")
+        self.assertEqual(r.status_code, 503, r.text)
+
+    def test_collection_create_and_retry_survive_engine_none(self):
+        # 曾经的阻断故障:rt 迁移把这两处漏成 `if engine:`(未定义名),POST 必 500。
+        # rt.engine 为 None 时不 enqueue,但接口本身必须活着。
+        from moss.model import DouyinAccount, KeywordCollectionJob
+        from moss.common.db import get_session
+        with get_session() as s:
+            acc = DouyinAccount(platform="douyin", nickname="冒烟",
+                                status="active", storage_state="{}")
+            s.add(acc); s.commit(); s.refresh(acc)
+            acc_id = acc.id
+        r = self.client.post("/api/collections", json={
+            "platform": "douyin", "account_id": acc_id, "keywords": ["冒烟词"]})
+        self.assertEqual(r.status_code, 200, r.text)
+        job_id = r.json()["id"]
+        with get_session() as s:
+            job = s.get(KeywordCollectionJob, job_id)
+            job.status = "failed"
+            s.add(job); s.commit()
+        r2 = self.client.post(f"/api/collections/{job_id}/retry")
+        self.assertEqual(r2.status_code, 200, r2.text)
+
 
 if __name__ == "__main__":
     unittest.main()

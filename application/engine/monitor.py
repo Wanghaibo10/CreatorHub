@@ -4,8 +4,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
-import logging
 import time
 from datetime import datetime, timedelta
 from typing import Optional
@@ -15,9 +13,6 @@ from sqlmodel import select
 from application.browser import BrowserManager
 from moss.core.config import Config
 from moss.common.db import get_session
-from application.douyin import parse_aweme
-from application.douyin.extract import Aweme
-# 图文平台(纯 HTTP,不开浏览器):凭证是账号 Cookie,不吃 browser/identity/state
 from moss.model import CommentTask, PublishTask, AccountActionTask, KeywordCollectionJob
 from moss.core.risk import RiskController
 from application.engine.downloader import Downloader
@@ -35,23 +30,7 @@ from application.engine.commenting import CommentOps
 from application.engine.actions import ActionOps
 from application.engine.collections import CollectionOps
 
-from application.engine._helpers import (MAX_AUTO_RETRY, _TZ_COUNTRY, log, _loads, _loads_list, _danmaku_matches,
-                                         _select_douyin_awemes, _douyin_scan_since,
-                                         _round_robin_by_account)
-
-# 账号时区 -> 期望出口国家(ISO2)。仅列常见,匹配不到则跳过地区校验。
-
-
-
-
-
-
-
-
-
-
-
-
+from application.engine._helpers import log
 
 
 class MonitorEngine(GateOps, ScanOps, WatchOps, PublishOps, CommentOps,
@@ -196,44 +175,3 @@ class MonitorEngine(GateOps, ScanOps, WatchOps, PublishOps, CommentOps,
             except Exception as e:
                 log.exception("scan loop error: %s", e)
             await asyncio.sleep(15)
-
-
-    # ── 账号登录态体检 + 闲置保活 ──
-
-    # ── 本账号作品健康监控(B5)+ 数据快照(B4)──
-
-    # 视为「异常/受限」的状态关键词(命中即告警)
-    _BAD_STATUS = ("违规", "删除", "下架", "不适宜", "限流", "私密", "仅自己", "审核不")
-
-
-    # ── 快手:创作者作品监控(浏览器拦截 GraphQL,与抖音同范式)──
-
-
-    # ── 小红书:创作者笔记 / 关键词 监控 ──
-
-    # ── 独立弹幕监控(DanmakuWatch)──
-
-
-    # ── 独立评论监控(CommentWatch)──
-
-
-    # ── 快手评论监控(浏览器拦截 GraphQL)──
-
-
-    # ── 小红书评论监控(签名直连 API)──
-
-
-    # ── 发布(小红书创作平台)+ 跨平台转发 ──
-
-
-    # ── 活跃时段(夜间静默)──
-
-    # ── 自动评论:规则生成任务 + 任务执行 ──
-
-
-    # ── 本账号写操作队列(取关/回关/发私信)──
-
-
-    # ── 失败重试 ──
-
-

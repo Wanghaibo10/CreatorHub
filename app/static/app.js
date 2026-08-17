@@ -1171,6 +1171,21 @@ async function startChannelsLogin() {
   } catch (e) { $("qrstatus").textContent = "启动失败: " + e.message; toast("视频号登录启动失败:" + e.message, "err"); }
 }
 
+// ─── 图文平台浏览器登录(打开官方后台登录页,登录成功后自动抓 Cookie) ───
+async function startArticleLogin() {
+  const proxy = await choosePreLoginProxy();
+  if (proxy === null) return;
+  $("cookiebox").style.display = "none";
+  $("qrbox").style.display = "block";
+  const pfLabel = PF_NAME[PLATFORM] || "平台";
+  $("qrstatus").textContent = `正在打开${pfLabel}登录页…`;
+  try {
+    const res = await api(loginStartUrl("/api/login/article/start", proxy) + "&platform=" + encodeURIComponent(PLATFORM), { method: "POST" });
+    $("qrstatus").innerHTML = `${ic("i-eye")} <b>${esc(pfLabel)}登录页已打开</b>，请在该窗口扫码或输入账号密码登录。<br>登录成功后 Cookie 会自动导入并验证，这里会自动刷新。`;
+    pollLogin(res.task_id);
+  } catch (e) { $("qrstatus").textContent = "启动失败: " + e.message; toast(pfLabel + "登录启动失败:" + e.message, "err"); }
+}
+
 // ─── Cookie 登录 ───
 function toggleCookie() {
   $("qrbox").style.display = "none";

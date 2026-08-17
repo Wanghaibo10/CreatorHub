@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import json
 import re
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -413,8 +414,8 @@ async def fetch_ks_self_profile(mgr: BrowserManager, identity: Identity,
     async def on_response(resp):
         if not uid_cookie or len(hits) >= 3:
             return
-        rt = resp.request.resource_type
-        if rt not in ("xhr", "fetch", "document"):
+        rtype = resp.request.resource_type
+        if rtype not in ("xhr", "fetch", "document"):
             return
         try:
             txt = await resp.text()

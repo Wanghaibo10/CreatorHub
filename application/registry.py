@@ -7,9 +7,9 @@
 
 新增平台的步骤:
   1. 在下面 SPECS 加一条 PlatformSpec
-  2. 建 app/platforms/<key>/ 包,按能力实现 publish/extract 等
-  3. 在 monitor.py 的发布分发处按 publish_via 接一条(纯 HTTP 平台走 article 通道)
-前端(web/app.js)的平台按钮与主题色仍需手工加——它不 import Python。
+  2. 建 application/<key>/ 包,按能力实现 publish/extract 等
+  3. 在 engine/publishing.py 的发布分发处按 publish_via 接一条(纯 HTTP 平台走 article 通道)
+前端(app/static/app.js)的平台按钮与主题色仍需手工加——它不 import Python。
 """
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ class PlatformSpec:
     account_label: str = ""       # 登录任务里的账号称呼(空=「<label>账号」)
     publish_via: str = "browser"  # browser=有头浏览器自动化 | http=纯协议 | none
     can_monitor_others: bool = True   # 能否监控他人作品/评论(视频号/图文平台不能)
-    login_methods: tuple = ("qr",)    # qr=扫码 | cookie=粘贴 Cookie | creator=创作者登录
+    login_methods: tuple = ("qr",)    # qr=扫码 | cookie=粘贴 Cookie | creator=创作者登录 | browser=开后台登录页自动抓 Cookie
     publish_note: str = ""        # 发布语义备注(如公众号只能到草稿)
 
     @property
@@ -58,17 +58,17 @@ SPECS: dict[str, PlatformSpec] = {s.key: s for s in [
         key="baijiahao", label="百家号", host="baijiahao.baidu.com",
         home_url="https://baijiahao.baidu.com/builder/rc/home",
         cookie_domain=".baidu.com", kind="article", publish_via="http",
-        can_monitor_others=False, login_methods=("cookie",)),
+        can_monitor_others=False, login_methods=("cookie", "browser")),
     PlatformSpec(
         key="toutiao", label="今日头条", host="mp.toutiao.com",
         home_url="https://mp.toutiao.com/profile_v4/index",
         cookie_domain=".toutiao.com", kind="article", publish_via="http",
-        can_monitor_others=False, login_methods=("cookie",)),
+        can_monitor_others=False, login_methods=("cookie", "browser")),
     PlatformSpec(
         key="wechat_mp", label="微信公众号", host="mp.weixin.qq.com",
         home_url="https://mp.weixin.qq.com/",
         cookie_domain="mp.weixin.qq.com", kind="article", publish_via="http",
-        can_monitor_others=False, login_methods=("cookie",),
+        can_monitor_others=False, login_methods=("cookie", "browser"),
         publish_note="未认证订阅号群发需扫码,自动线只到草稿箱(建成即视为完成)"),
 ]}
 

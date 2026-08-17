@@ -6,7 +6,7 @@ from typing import Optional
 
 from curl_cffi.requests import AsyncSession
 
-from app.service.netfp import impersonate_for_ua
+from moss.common.netfp import impersonate_for_ua
 
 _SEC_UID_RE = re.compile(r"sec_uid=([\w\-]+)")
 _USER_PATH_RE = re.compile(r"/user/([\w\-]+)")

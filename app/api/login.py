@@ -318,30 +318,141 @@ class CookieIn(BaseModel):
     token: str = ""                     # 公众号专用:token 不在 cookie 里,要单独给
 
 
-@router.post("/api/login/cookie")
-async def login_cookie(body: CookieIn):
-    """Cookie 粘贴登录。
+def _persist_cookie_account(platform: str, raw_cookie: str,
+                            nickname: str = "") -> tuple[int, str]:
+    """Cookie 字符串 → 建账号 + 分配画像。返回 (account_id, nickname)。
 
-    对图文平台(百家号/头条/公众号)这是**唯一**登录方式——它们走纯 HTTP,
-    没有扫码流程。公众号要 cookie + token 两样,合并成 "<cookie>||<token>" 存一列。
-    """
-    platform = normalize_platform(body.platform, allowed=COOKIE_LOGIN_KEYS)
-    state = cookie_string_to_state(body.cookie, platform)
-    raw_cookie = body.cookie.strip()
-    if platform == "wechat_mp":
-        if not body.token.strip():
-            raise HTTPException(400, "公众号还需要 token(在后台页面 URL 的 token= 参数里)")
-        raw_cookie = f"{raw_cookie}||{body.token.strip()}"
+    Cookie 粘贴登录和图文平台浏览器登录共用。公众号的 raw_cookie 是
+    "<cookie>||<token>" 合并形态,storage_state 只用 cookie 那半。"""
+    state = cookie_string_to_state(raw_cookie.split("||", 1)[0], platform)
     with get_session() as s:
         acc = DouyinAccount(
-            nickname=body.nickname or f"{PLATFORM_SPEC(platform).label}账号",
+            nickname=nickname or f"{PLATFORM_SPEC(platform).label}账号",
             platform=platform,
             identity_mode="native", cookie=raw_cookie, storage_state=state)
         s.add(acc); s.commit(); s.refresh(acc)
         # 分配画像(profile/UA/指纹/代理):Cookie 会在首次开持久 profile 时桥接注入
         ensure_identity(acc, cfg, session=s, assign_proxy=True)
         s.add(acc); s.commit(); s.refresh(acc)
-        return {"account_id": acc.id, "nickname": acc.nickname}
+        return acc.id, acc.nickname
+
+
+@router.post("/api/login/cookie")
+async def login_cookie(body: CookieIn):
+    """Cookie 粘贴登录。
+
+    图文平台(百家号/头条/公众号)也可走 /api/login/article/start 开登录页自动抓。
+    公众号要 cookie + token 两样,合并成 "<cookie>||<token>" 存一列。
+    """
+    platform = normalize_platform(body.platform, allowed=COOKIE_LOGIN_KEYS)
+    raw_cookie = body.cookie.strip()
+    if platform == "wechat_mp":
+        if not body.token.strip():
+            raise HTTPException(400, "公众号还需要 token(在后台页面 URL 的 token= 参数里)")
+        raw_cookie = f"{raw_cookie}||{body.token.strip()}"
+    account_id, nickname = _persist_cookie_account(platform, raw_cookie,
+                                                   body.nickname)
+    return {"account_id": account_id, "nickname": nickname}
+
+
+async def _run_article_login(task_id: str, platform: str,
+                             proxy_choice: str = "auto"):
+    """图文平台浏览器登录:开官方后台登录页,用户扫码/输密码,成功后抓
+    Cookie 建号并立即判活。图文线之后走纯 HTTP,临时 profile 用完即删。"""
+    import os
+    import shutil
+    from application.browser import (Identity, generate_identity_fields,
+                                     interactive_article_login)
+    rt.login_tasks[task_id] = {"status": "waiting"}
+    tmp_profile = os.path.join(cfg.engine.profiles_dir, "new_" + uuid.uuid4().hex)
+    proxy_reservation_key = ""
+    login_environment = {}
+    identity = None
+    try:
+        choice = (proxy_choice or "").strip()
+        if choice.lower() in ("", "none"):
+            proxy = ""
+        elif choice.lower() == "auto":
+            with get_session() as s:
+                proxy_reservation_key = task_id
+                proxy = reserve_proxy_from_pool(s, cfg, proxy_reservation_key)
+        else:
+            from application.browser.manager import normalize_proxy
+            proxy = normalize_proxy(choice)
+        fields = generate_identity_fields()
+        identity = Identity(
+            account_id=None, profile_dir=tmp_profile, identity_mode="native",
+            platform=platform, proxy=proxy, ua="",
+            viewport_w=fields["viewport_w"], viewport_h=fields["viewport_h"],
+            timezone_id=fields["timezone_id"], locale=fields["locale"],
+            fp_seed=fields["fp_seed"])
+        login_environment = rt.browser.environment_snapshot(identity, headless=False)
+        rt.login_tasks[task_id] = {"status": "waiting",
+                                   "environment": login_environment}
+
+        ok, cookie_str, token = await interactive_article_login(
+            rt.browser, identity, platform)
+        if not ok:
+            rt.login_tasks[task_id] = {"status": "expired",
+                                       "environment": login_environment}
+            return
+
+        raw_cookie = cookie_str
+        if platform == "wechat_mp":
+            if not token:
+                rt.login_tasks[task_id] = {
+                    "status": "error", "error": "登录成功但没拿到 token,请重试",
+                    "environment": login_environment}
+                return
+            raw_cookie = f"{cookie_str}||{token}"
+        acc_id, nickname = _persist_cookie_account(platform, raw_cookie)
+        rt.login_tasks[task_id] = {
+            "status": "persisted", "account_id": acc_id, "nickname": nickname,
+            "hint": "已拿到 Cookie,正在验证登录态",
+            "environment": login_environment}
+
+        # 纯 HTTP 判活 + 抓昵称;结果语义对齐扫码线的 profile_status
+        try:
+            chk = await _check_article_account(acc_id)
+        except Exception as e:
+            chk = {"status": "error", "error": f"{type(e).__name__}: {e}"}
+        profile_status = ("confirmed" if chk.get("status") == "active"
+                          else "invalid" if chk.get("status") == "invalid"
+                          else "error")
+        rt.login_tasks[task_id] = {
+            "status": "confirmed", "account_id": acc_id,
+            "nickname": chk.get("nickname") or nickname,
+            "profile_status": profile_status,
+            "environment": login_environment}
+    except Exception as e:
+        traceback.print_exc()
+        rt.login_tasks[task_id] = {
+            "status": "error", "error": f"{type(e).__name__}: {e}",
+            "environment": login_environment}
+    finally:
+        if proxy_reservation_key:
+            release_proxy_reservation(proxy_reservation_key)
+        if identity is not None:
+            try:
+                await rt.browser.close_context(identity.key)
+            except Exception:
+                pass
+        shutil.rmtree(tmp_profile, ignore_errors=True)
+
+
+@router.post("/api/login/article/start")
+async def login_article_start(platform: str, proxy: str = "auto"):
+    """图文平台(百家号/头条/公众号)浏览器登录:开后台登录页,登录后自动抓 Cookie。"""
+    if rt.browser is None:
+        raise HTTPException(503, "浏览器未就绪")
+    if platform not in ARTICLE_PLATFORM_KEYS:
+        raise HTTPException(400, f"{PLATFORM_SPEC(platform).label} 不是图文平台")
+    task_id = uuid.uuid4().hex
+    rt.login_tasks[task_id] = {"status": "opening"}
+    asyncio.create_task(_run_article_login(task_id, platform, proxy))
+    return {"task_id": task_id, "status": "opening",
+            "hint": f"已打开{PLATFORM_SPEC(platform).label}登录页,"
+                    f"登录成功后自动导入 Cookie"}
 
 
 @router.post("/api/accounts/{account_id}/check-article-login")
@@ -351,6 +462,11 @@ async def check_article_login(account_id: int):
     浏览器系账号走 /api/accounts/{id}/refresh 那条;图文平台没有 storage_state
     可刷,只能拿 Cookie 打一次平台自身的接口来判活。
     """
+    return await _check_article_account(account_id)
+
+
+async def _check_article_account(account_id: int) -> dict:
+    """图文账号判活核心:打平台接口,回写账号状态/昵称,返回 {status, ...}。"""
     with get_session() as s:
         acc = s.get(DouyinAccount, account_id)
         if not acc:

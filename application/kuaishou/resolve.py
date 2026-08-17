@@ -14,7 +14,7 @@ from typing import Optional
 
 from curl_cffi.requests import AsyncSession
 
-from app.service.netfp import impersonate_for_ua
+from moss.common.netfp import impersonate_for_ua
 
 _PROFILE_RE = re.compile(r"/profile/([0-9a-zA-Z_\-]+)")
 _PHOTO_RE = re.compile(r"/(?:short-video|video|photo)/([0-9a-zA-Z_\-]+)")

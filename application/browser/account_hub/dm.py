@@ -339,10 +339,7 @@ async def fetch_dm_conversations(mgr: BrowserManager, identity, platform: str,
             if len(b) > len(dm_init_raw[0]):
                 dm_init_raw[0] = b
                 log.debug(f"[dm-init] get_message_by_init kept={len(b)} bytes")
-        # 私信接口可能是 protobuf:先取文本,JSON 解析失败也留个样本(标注 non-json)
-        raw_text = ""
-        with suppress(Exception):
-            raw_text = await resp.text()
+        # 私信接口可能是 protobuf:JSON 解析失败按二进制处理(样本走下面的 resp.body())
         try:
             data = await resp.json()
         except Exception:

@@ -6,7 +6,7 @@
   · 账号级 Cookie + 独立代理(沿用 DouyinAccount 上已有的隔离画像)
   · 失败重试 + 把平台错误翻译成 RiskCategory,好接进既有风控闸门
 
-发包能力直接复用 app/common/requests_extension/async_session.py(curl_cffi 异步基座),
+发包能力直接复用 moss/common/requests_extension/async_session.py(curl_cffi 异步基座),
 本模块只补 CreatorHub 侧的凭证与风控接线。
 
 平台子类要做的事:

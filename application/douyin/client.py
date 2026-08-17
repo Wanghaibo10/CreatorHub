@@ -12,7 +12,7 @@ from curl_cffi.requests import AsyncSession
 import re
 
 from application.douyin.signing import sign_url, gen_false_ms_token
-from app.service.netfp import impersonate_for_ua
+from moss.common.netfp import impersonate_for_ua
 from moss.common.logging_setup import get_logger
 
 log = get_logger("platforms.douyin.client")

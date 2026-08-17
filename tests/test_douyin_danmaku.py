@@ -2,7 +2,7 @@ import unittest
 
 from application.browser.fetcher import _danmaku_position_ms, _dig_danmaku_list, _is_danmaku_url
 from moss.core.config import EngineConfig
-from application.engine.monitor import _danmaku_matches
+from application.engine._helpers import _danmaku_matches
 from moss.model import DanmakuRecord, DanmakuWatch, SQLModel
 from application.douyin.extract import danmaku_key, parse_danmaku
 

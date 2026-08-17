@@ -390,7 +390,6 @@ async def fetch_follows(mgr: BrowserManager, identity, platform: str, uid: str,
                     continue    # 这个入口没触发对的接口,换下一个候选
             else:
                 await page.wait_for_timeout(settle_ms)
-                opened = True
                 break
         if platform == "xhs":
             await mgr.xhs_interaction.pause(0.25, 0.55)

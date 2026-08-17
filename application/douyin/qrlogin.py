@@ -19,7 +19,7 @@ from typing import Dict, Optional
 
 from curl_cffi.requests import AsyncSession
 
-from app.service.netfp import impersonate_for_ua
+from moss.common.netfp import impersonate_for_ua
 from contextlib import suppress
 
 SSO = "https://sso.douyin.com"
@@ -38,11 +38,6 @@ def gen_verify_fp() -> str:
         n //= 36
     rand = "".join(random.choice(chars) for _ in range(36))
     body = list(rand)
-    last = ""
-    for i, ch in enumerate(body):
-        if i:
-            last = body[i - 1]
-        body[i] = ch
     return f"verify_{base36}_{''.join(body)}"
 
 

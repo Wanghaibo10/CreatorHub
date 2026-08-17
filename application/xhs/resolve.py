@@ -10,7 +10,7 @@ from typing import Optional
 
 from curl_cffi.requests import AsyncSession
 
-from app.service.netfp import impersonate_for_ua
+from moss.common.netfp import impersonate_for_ua
 
 _ID_RE = r"[0-9a-fA-F]{24}"
 _NOTE_PATH_RE = re.compile(rf"/(?:explore|discovery/item)/({_ID_RE})")

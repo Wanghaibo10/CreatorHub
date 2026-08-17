@@ -14,7 +14,7 @@ from typing import List, Optional, Tuple
 from curl_cffi.requests import Session
 
 from application.xhs import creator_sign as sign
-from app.service.netfp import impersonate_for_ua
+from moss.common.netfp import impersonate_for_ua
 from contextlib import suppress
 
 CREATOR_URL = "https://creator.xiaohongshu.com"

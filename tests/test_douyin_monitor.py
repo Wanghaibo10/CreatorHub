@@ -1,7 +1,7 @@
 import unittest
 
 from application.browser.fetcher import _page_reaches_boundary
-from application.engine.monitor import _douyin_scan_since, _select_douyin_awemes
+from application.engine._helpers import _douyin_scan_since, _select_douyin_awemes
 
 
 def aweme_item(aweme_id: str, create_time: int) -> dict:
