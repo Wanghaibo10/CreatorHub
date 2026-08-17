@@ -12,16 +12,18 @@
 """
 import asyncio
 import json
+import os
 import re
 import sqlite3
 import sys
 from pathlib import Path
 
-sys.path.insert(0, r"C:\creatorhub")
+ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT))
 from app.browser.manager import BrowserManager  # noqa: E402
 from app.platforms.channels.publish import publish_channels  # noqa: E402
 
-DB = r"C:\creatorhub\data\creatorhub.db"
+DB = os.environ.get("CREATORHUB_DB", str(ROOT / "data" / "creatorhub.db"))
 DEFAULT_TAGS = "情感,治愈,成长,情感文案"
 
 
@@ -81,7 +83,8 @@ async def main():
 
     UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
           "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0")
-    mgr = BrowserManager(UA, r"C:\creatorhub\data\profiles")
+    mgr = BrowserManager(UA, os.environ.get(
+        "CREATORHUB_PROFILES", str(ROOT / "data" / "profiles")))
     await mgr.start()
     try:
         ok, url, err = await publish_channels(

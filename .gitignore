@@ -29,3 +29,8 @@ config.yaml
 
 # 内部方案文档(不随公开仓库发布)
 docs/
+
+# 快手签名 SDK:运行时 `python app/platforms/kuaishou/_sign/fetch_sdk.py` 抓
+# 第三方逆向代码只用不收,不入库
+app/platforms/kuaishou/_sign/jose.js
+app/platforms/kuaishou/_sign/sig3sdk.js

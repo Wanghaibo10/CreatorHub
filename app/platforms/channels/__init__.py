@@ -19,10 +19,12 @@ from .extract import (parse_channels_feed, parse_channels_comment,
 from .resolve import (resolve_channels_user_id, resolve_channels_photo_id,
                       looks_like_photo)
 from .publish import publish_channels
+from .api import ChannelsAPI
 
 __all__ = [
     "parse_channels_feed", "parse_channels_comment", "flatten_channels_comments",
     "parse_self_user", "safe_title", "Aweme", "MediaItem",
     "resolve_channels_user_id", "resolve_channels_photo_id", "looks_like_photo",
     "publish_channels",
+    "ChannelsAPI",
 ]

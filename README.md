@@ -27,6 +27,17 @@ CreatorHub 使用 Python + FastAPI 提供统一 Web 界面，用于管理账号�
 
 > 视频号只支持创作者助手中的本账号数据，不支持监控或下载他人作品。
 
+### 纯协议发布(零浏览器)
+
+| 平台 | 入口 | 说明 |
+|---|---|---|
+| 快手 | `python publish_ks.py <视频> <文案> [--account 4] [--dry]` | 七步 HTTP + 两套签名。首次先跑 `python app/platforms/kuaishou/_sign/fetch_sdk.py` |
+| 视频号 | `python publish_api.py <期目录> [account_id] [--dry]` | 无 JS 签名,走创作者助手接口 |
+
+登录态从本仓 `data/creatorhub.db` 的 `storage_state` 读,不抢正在跑的服务。
+快手签名 SDK(`jose.js` / `sig3sdk.js`)不入库,运行时抓。
+纯协议快手作品可能带「私密」标记,发完要在创作平台确认公开。
+
 ## 快速开始
 
 ### 环境要求

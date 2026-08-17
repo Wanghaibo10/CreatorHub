@@ -1,14 +1,19 @@
 """发布后核对线上作品。纯接口查 post_list —— 顺便验证这个接口的参数。"""
-import asyncio, sqlite3, sys, datetime, json
-sys.path.insert(0, r"C:\creatorhub")
+import asyncio, datetime, json, os, sqlite3, sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT))
 from app.platforms.channels.api import ChannelsAPI, cookies_from_profile, resolve_finder_id
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0")
+DB = os.environ.get("CREATORHUB_DB", str(ROOT / "data" / "creatorhub.db"))
+PROFILES = os.environ.get("CREATORHUB_PROFILES", str(ROOT / "data" / "profiles"))
 
 
 def load_account(aid=2):
-    con = sqlite3.connect(r"C:\creatorhub\data\creatorhub.db"); con.row_factory = sqlite3.Row
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
     row = con.execute("SELECT * FROM douyinaccount WHERE id=?", (aid,)).fetchone(); con.close()
     a = type("A", (), {})()
     for k in row.keys():
@@ -18,7 +23,7 @@ def load_account(aid=2):
 
 async def main():
     acc = load_account()
-    cookie, uin = await cookies_from_profile(acc, r"C:\creatorhub\data\profiles", UA)
+    cookie, uin = await cookies_from_profile(acc, PROFILES, UA)
     fid = await resolve_finder_id(cookie, uin, UA, acc.proxy or None)
     async with ChannelsAPI(cookie, fid, uin, UA, acc.proxy or None) as api:
         try:

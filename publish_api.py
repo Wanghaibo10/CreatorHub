@@ -15,19 +15,21 @@
 """
 import asyncio
 import json
+import os
 import re
 import sqlite3
 import sys
 from pathlib import Path
 
-sys.path.insert(0, r"C:\creatorhub")
+ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT))
 from app.platforms.channels.api import (  # noqa: E402
     ChannelsAPI, build_topic_xml, cookies_from_profile, extract_topics,
     probe_video, resolve_finder_id)
 from app.platforms.channels.publish import _clean_short_title  # noqa: E402
 
-DB = r"C:\creatorhub\data\creatorhub.db"
-PROFILES = r"C:\creatorhub\data\profiles"
+DB = os.environ.get("CREATORHUB_DB", str(ROOT / "data" / "creatorhub.db"))
+PROFILES = os.environ.get("CREATORHUB_PROFILES", str(ROOT / "data" / "profiles"))
 DEFAULT_TAGS = ["情感", "治愈", "成长", "情感文案"]
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0")
