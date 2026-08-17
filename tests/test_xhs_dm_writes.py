@@ -3,7 +3,7 @@ import unittest
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock
 
-from app.browser.xhs_dm import send_xhs_dm_page
+from application.browser.xhs_dm import send_xhs_dm_page
 
 
 class _Response:
@@ -190,7 +190,7 @@ class _Manager:
 
 class XhsDmWriteTests(unittest.TestCase):
     def test_account_hub_forwards_xhs_submit_callback_to_state_machine(self):
-        from app.browser import account_hub
+        from application.browser import account_hub
 
         class HubPage:
             def __init__(self):
@@ -230,7 +230,7 @@ class XhsDmWriteTests(unittest.TestCase):
             callback = AsyncMock()
             state_machine = AsyncMock(return_value=(True, ""))
             with unittest.mock.patch.object(
-                    account_hub, "send_xhs_dm_page", state_machine,
+                    account_hub.actions, "send_xhs_dm_page", state_machine,
                     create=True):
                 result = await account_hub.send_dm(
                     manager, object(), "xhs", target_uid="fixture-user",

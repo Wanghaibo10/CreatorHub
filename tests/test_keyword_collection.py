@@ -12,33 +12,13 @@ from openpyxl import load_workbook
 from fastapi import HTTPException
 from sqlmodel import select
 
-from app import db
-from app.browser.fetcher import (
-    _douyin_search_needs_verification,
-    douyin_search_empty_error,
-    douyin_search_exception_error,
-    extract_search_awemes,
-    fetch_douyin_search,
-)
-from app.config import Config
-from app.engine.collection import KeywordCollector
-from app.main import (
-    KeywordCollectionIn,
-    _collection_content_dict,
-    _collection_error_for_display,
-    _collection_keywords,
-    create_keyword_collection,
-    keyword_collection_content_media,
-    keyword_collection_local_media,
-    update_keyword_collection,
-)
-from app.models import (
-    DouyinAccount,
-    KeywordCollectionComment,
-    KeywordCollectionContent,
-    KeywordCollectionJob,
-)
-from app.reporting import build_keyword_collection_report
+from moss.common import db
+from application.browser.fetcher import (_douyin_search_needs_verification, douyin_search_empty_error, douyin_search_exception_error, extract_search_awemes, fetch_douyin_search)
+from moss.core.config import Config
+from application.engine.collection import KeywordCollector
+from app.api.collections import (KeywordCollectionIn, _collection_content_dict, _collection_error_for_display, _collection_keywords, create_keyword_collection, keyword_collection_content_media, keyword_collection_local_media, update_keyword_collection)
+from moss.model import (DouyinAccount, KeywordCollectionComment, KeywordCollectionContent, KeywordCollectionJob)
+from app.service.reporting import build_keyword_collection_report
 
 
 class SearchExtractionTests(unittest.TestCase):

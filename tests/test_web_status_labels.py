@@ -1,8 +1,8 @@
 from pathlib import Path
 
 
-APP_JS = Path(__file__).parents[1] / "app" / "web" / "app.js"
-INDEX_HTML = Path(__file__).parents[1] / "app" / "web" / "index.html"
+APP_JS = Path(__file__).parents[1] / "app" / "static" / "app.js"
+INDEX_HTML = Path(__file__).parents[1] / "app" / "static" / "index.html"
 
 
 def test_xhs_note_card_uses_chinese_status_label_mapper():
@@ -34,7 +34,7 @@ def test_keyword_collection_results_have_card_layout_and_file_preview_actions():
     assert 'id="collection-content-list"' in html
     assert "collection-result-grid" in html
     assert "function openCollectionPreview" in source
-    assert "/local-media/" in Path(__file__).parents[1].joinpath("app", "main.py").read_text(encoding="utf-8")
+    assert "/local-media/" in Path(__file__).parents[1].joinpath("app", "api", "collections.py").read_text(encoding="utf-8")
     assert "function openCollectionFile" in source
     assert "function revealCollectionFile" in source
     assert "function copyCollectionPath" in source

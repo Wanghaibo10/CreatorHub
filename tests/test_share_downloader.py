@@ -3,18 +3,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from app.engine.share_downloader import (
-    _clean_ydl_error,
-    _download_format_options,
-    _quality_format,
-    ShareDownloader,
-    ShareLinkError,
-    detect_platform,
-    extract_share_urls,
-    is_private_url,
-    normalize_share_text,
-    require_share_urls,
-)
+from application.engine.share_downloader import (_clean_ydl_error, _download_format_options, _quality_format, ShareDownloader, ShareLinkError, detect_platform, extract_share_urls, is_private_url, normalize_share_text, require_share_urls)
 
 
 class ShareURLTests(unittest.TestCase):

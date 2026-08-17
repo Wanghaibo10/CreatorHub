@@ -2,15 +2,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import app.db as db
-from app.config import Config
-from app.main import _proxy_probe_status, _proxy_status_ok
-from app.models import DouyinAccount, ProxyPool
-from app.profiles import (
-    assign_proxy_from_pool,
-    release_proxy_reservation,
-    reserve_proxy_from_pool,
-)
+import moss.common.db as db
+from moss.core.config import Config
+from app.service.proxy import _proxy_probe_status, _proxy_status_ok
+from moss.model import DouyinAccount, ProxyPool
+from app.service.profiles import (assign_proxy_from_pool, release_proxy_reservation, reserve_proxy_from_pool)
 
 
 class ProxyAssignmentTests(unittest.TestCase):

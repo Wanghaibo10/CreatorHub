@@ -5,19 +5,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
-import app.db as db
-from app.config import Config, EngineConfig
-from app.engine.monitor import MonitorEngine
-from app.risk import OperationKind
-from app.models import (
-    AccountActionTask,
-    CommentRule,
-    CommentTask,
-    DmConversation,
-    DouyinAccount,
-    PublishTask,
-    RiskEvent,
-)
+import moss.common.db as db
+from moss.core.config import Config, EngineConfig
+from application.engine.monitor import MonitorEngine
+from moss.core.risk import OperationKind
+from moss.model import (AccountActionTask, CommentRule, CommentTask, DmConversation, DouyinAccount, PublishTask, RiskEvent)
 from sqlmodel import select
 
 
@@ -246,7 +238,7 @@ class WriteGateTests(unittest.TestCase):
         async def sent(*_args, **_kwargs):
             return True, ""
 
-        with patch("app.engine.monitor.post_comment_browser", sent):
+        with patch("application.engine.commenting.post_comment_browser", sent):
             first = asyncio.run(engine.execute_comment_task(comment_id))
         second = asyncio.run(engine.execute_action_task(action_id))
 
@@ -286,8 +278,8 @@ class WriteGateTests(unittest.TestCase):
             browser_calls += 1
             return True, ""
 
-        with patch("app.engine.monitor.send_dm_api", api_risk), \
-                patch("app.engine.monitor.send_dm", browser_retry):
+        with patch("application.engine.actions.send_dm_api", api_risk), \
+                patch("application.engine.actions.send_dm", browser_retry):
             result = asyncio.run(engine.execute_action_task(task_id))
 
         self.assertFalse(result["ok"])
@@ -309,7 +301,7 @@ class WriteGateTests(unittest.TestCase):
                 )
             return False, "write_uncertain:发送后连接中断"
 
-        with patch("app.engine.monitor.send_dm", ambiguous):
+        with patch("application.engine.actions.send_dm", ambiguous):
             result = asyncio.run(engine.execute_action_task(task_id))
 
         self.assertFalse(result["ok"])
@@ -329,7 +321,7 @@ class WriteGateTests(unittest.TestCase):
         async def rejected(*_args, **_kwargs):
             return False, "", "HTTP 429"
 
-        with patch("app.engine.monitor.publish_douyin", rejected):
+        with patch("application.engine.publishing.publish_douyin", rejected):
             result = asyncio.run(engine.publish_task(task_id))
 
         self.assertFalse(result["ok"])
@@ -347,7 +339,7 @@ class WriteGateTests(unittest.TestCase):
         async def logged_out(*_args, **_kwargs):
             return False, "", "logged_out"
 
-        with patch("app.engine.monitor.publish_douyin", logged_out):
+        with patch("application.engine.publishing.publish_douyin", logged_out):
             result = asyncio.run(engine.publish_task(task_id))
 
         self.assertFalse(result["ok"])
@@ -373,7 +365,7 @@ class WriteGateTests(unittest.TestCase):
                     "write_submitted:browser")
             return False, "", "write_uncertain:发布后连接中断"
 
-        with patch("app.engine.monitor.publish_xhs", ambiguous):
+        with patch("application.engine.publishing.publish_xhs", ambiguous):
             result = asyncio.run(engine.publish_task(task_id))
 
         self.assertFalse(result["ok"])
@@ -393,7 +385,7 @@ class WriteGateTests(unittest.TestCase):
         async def rejected(*_args, **_kwargs):
             return False, "", "HTTP 429"
 
-        with patch("app.engine.monitor.publish_douyin", rejected):
+        with patch("application.engine.publishing.publish_douyin", rejected):
             result = asyncio.run(engine.publish_task(task_id))
 
         self.assertFalse(result["ok"])
@@ -621,7 +613,7 @@ class WriteGateTests(unittest.TestCase):
             self.assertEqual(task.method, "manual")
 
     def test_xhs_comment_defaults_to_browser_page_write(self):
-        from app.platforms.xhs.browser_writes import XhsWriteOutcome
+        from application.xhs.browser_writes import XhsWriteOutcome
 
         account_id = self._account(platform="xhs")
         task_id = self._xhs_comment_task(account_id)
@@ -635,7 +627,7 @@ class WriteGateTests(unittest.TestCase):
         async def posted(*_args, **_kwargs):
             return XhsWriteOutcome("success", result="comment-fixture")
 
-        with patch("app.engine.monitor.comment_xhs_browser", posted):
+        with patch("application.engine.commenting.comment_xhs_browser", posted):
             result = asyncio.run(engine.execute_comment_task(task_id))
 
         self.assertTrue(result["ok"])
@@ -646,7 +638,7 @@ class WriteGateTests(unittest.TestCase):
             self.assertEqual(task.result, "comment-fixture")
 
     def test_xhs_comment_uncertain_stops_without_retry(self):
-        from app.platforms.xhs.browser_writes import XhsWriteOutcome
+        from application.xhs.browser_writes import XhsWriteOutcome
 
         account_id = self._account(platform="xhs")
         task_id = self._xhs_comment_task(account_id)
@@ -660,7 +652,7 @@ class WriteGateTests(unittest.TestCase):
                     "write_submitted:browser")
             return XhsWriteOutcome("uncertain", error="发送后连接中断")
 
-        with patch("app.engine.monitor.comment_xhs_browser", ambiguous):
+        with patch("application.engine.commenting.comment_xhs_browser", ambiguous):
             result = asyncio.run(engine.execute_comment_task(task_id))
 
         self.assertFalse(result["ok"])

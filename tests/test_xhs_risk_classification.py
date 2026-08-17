@@ -4,15 +4,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import app.db as db
+import moss.common.db as db
 from sqlmodel import select
 
-from app.config import Config
-from app.engine.monitor import MonitorEngine
-from app.models import (AccountRiskState, CommentRule, CommentTask, CommentWatch,
-                        ContentRecord, DouyinAccount, MonitorTarget, RiskEvent)
-from app.platforms.xhs.client import XhsApiClient, XhsApiError
-from app.risk import OperationKind
+from moss.core.config import Config
+from application.engine.monitor import MonitorEngine
+from moss.model import (AccountRiskState, CommentRule, CommentTask, CommentWatch, ContentRecord, DouyinAccount, MonitorTarget, RiskEvent)
+from application.xhs.client import XhsApiClient, XhsApiError
+from moss.core.risk import OperationKind
 
 
 class _Response:
@@ -286,7 +285,7 @@ class XhsRiskClassificationTests(unittest.TestCase):
                     signal="http_429")
 
         engine = MonitorEngine(self.cfg, _BrowserStub())
-        with patch("app.engine.monitor.XhsApiClient", RiskClient):
+        with patch("application.engine.scanning.XhsApiClient", RiskClient):
             result = asyncio.run(engine.scan_target(target_id))
 
         self.assertFalse(result["ok"])
@@ -330,7 +329,7 @@ class XhsRiskClassificationTests(unittest.TestCase):
                 return {}
 
         engine = MonitorEngine(self.cfg, _BrowserStub())
-        with patch("app.engine.monitor.XhsApiClient", TimeoutClient):
+        with patch("application.engine.scanning.XhsApiClient", TimeoutClient):
             result = asyncio.run(engine.scan_target(target_id))
 
         self.assertFalse(result["ok"])
@@ -376,7 +375,7 @@ class XhsRiskClassificationTests(unittest.TestCase):
                 raise ConnectionError("connection reset")
 
         engine = MonitorEngine(self.cfg, _BrowserStub())
-        with patch("app.engine.monitor.XhsApiClient", ConnectionClient):
+        with patch("application.engine.scanning.XhsApiClient", ConnectionClient):
             result = asyncio.run(engine.scan_target(target_id))
 
         self.assertFalse(result["ok"])
@@ -515,8 +514,8 @@ class XhsRiskClassificationTests(unittest.TestCase):
         parsed = {
             "comment_id": "comment-1", "user_nickname": "visitor", "text": "hello"
         }
-        with patch("app.engine.monitor.flatten_xhs_comments", side_effect=lambda rows: rows), \
-                patch("app.engine.monitor.parse_xhs_comment", return_value=parsed):
+        with patch("application.engine.commenting.flatten_xhs_comments", side_effect=lambda rows: rows), \
+                patch("application.engine.commenting.parse_xhs_comment", return_value=parsed):
             candidates, error = asyncio.run(engine._discover_targets(
                 rule, "state", "", "creator-1", "owner", _Identity()))
 
@@ -586,8 +585,8 @@ class XhsRiskClassificationTests(unittest.TestCase):
                 return [], platform_error
 
             with self.subTest(platform_error=platform_error), \
-                    patch("app.engine.monitor.fetch_videos", videos), \
-                    patch("app.engine.monitor.fetch_comments", comments):
+                    patch("application.engine.commenting.fetch_videos", videos), \
+                    patch("application.engine.commenting.fetch_comments", comments):
                 candidates, error = asyncio.run(engine._discover_targets(
                     rule, "", "", "creator-1", "fixture", _Identity()))
             self.assertEqual(candidates, [])
@@ -614,8 +613,8 @@ class XhsRiskClassificationTests(unittest.TestCase):
             "aweme_id": "", "xsec_token": "", "keyword": "",
             "sec_uid": "creator-1", "has_creator": False, "account_uid": "",
         }
-        with patch("app.engine.monitor.fetch_videos", videos), \
-                patch("app.engine.monitor.fetch_comments", comments):
+        with patch("application.engine.commenting.fetch_videos", videos), \
+                patch("application.engine.commenting.fetch_comments", comments):
             candidates, error = asyncio.run(engine._discover_targets(
                 rule, "", "", "creator-1", "fixture", _Identity()))
         self.assertEqual(candidates, [])

@@ -6,16 +6,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-import app.db as db
-from app.browser.identity import Identity
-from app.browser.manager import (
-    BrowserManager,
-    BrowserProfileConflictError,
-    _ProfileProcessLock,
-)
-from app.config import Config
-from app.models import AccountRiskState, DouyinAccount
-from app.risk import OperationKind, RiskController
+import moss.common.db as db
+from application.browser.identity import Identity
+from application.browser.manager import (BrowserManager, BrowserProfileConflictError, _ProfileProcessLock)
+from moss.core.config import Config
+from moss.model import AccountRiskState, DouyinAccount
+from moss.core.risk import OperationKind, RiskController
 
 
 class NativeWriteSafetyTests(unittest.TestCase):

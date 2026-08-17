@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "app/web/**"
+      - "app/static/**"
       - "preview/**"
       - ".github/workflows/pages-preview.yml"
   workflow_dispatch:

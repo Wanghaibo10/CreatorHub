@@ -7,13 +7,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-from app.browser.identity import Identity
-from app.browser.manager import BrowserManager
-from app.browser import account_hub, xhs_fetcher
-from app.browser.xhs_interaction import (
-    XhsInteractionPolicy,
-    XhsVisibleActionGate,
-)
+from application.browser.identity import Identity
+from application.browser.manager import BrowserManager
+from application.browser import account_hub, xhs_fetcher
+from application.browser.xhs_interaction import XhsInteractionPolicy, XhsVisibleActionGate
 
 
 class _Mouse:
@@ -323,7 +320,7 @@ class XhsInteractionTests(unittest.TestCase):
                     platform="xhs",
                 )
                 with patch(
-                        "app.browser.manager.bring_window_to_front",
+                        "application.browser.manager.bring_window_to_front",
                         return_value=True):
                     async with manager.visible_page(
                             identity, url="https://www.xiaohongshu.com/") as leased:

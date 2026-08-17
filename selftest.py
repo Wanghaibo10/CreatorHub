@@ -9,7 +9,7 @@ import sys
 
 def check_primitives() -> bool:
     try:
-        from app.platforms.douyin.signing import sm3_hash, rc4
+        from application.douyin.signing import sm3_hash, rc4
 
         h = sm3_hash(b"abc").hex()
         assert h == "66c7f0f462eeedd9d1f2d46bdc10e4e24167c4875cf2f7a2297da02b8f4ba8e0", "SM3 失败"
@@ -25,8 +25,8 @@ def check_primitives() -> bool:
 
 def check_risk_control() -> bool:
     try:
-        from app.config import Config
-        from app.risk import RiskController, network_key
+        from moss.core.config import Config
+        from moss.core.risk import RiskController, network_key
 
         cfg = Config()
         controller = RiskController(cfg)
@@ -74,7 +74,7 @@ def check_node() -> bool:
 def check_share_downloader() -> bool:
     try:
         import yt_dlp
-        from app.engine.share_downloader import extract_share_urls
+        from application.engine.share_downloader import extract_share_urls
 
         links = extract_share_urls(
             "中文分享：https%3A%2F%2Fv.douyin.com%2Fexample%2F 😄"

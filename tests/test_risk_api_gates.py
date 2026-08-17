@@ -10,15 +10,22 @@ from fastapi import HTTPException
 import httpx
 from sqlmodel import select
 
-import app.db as db
+import moss.common.db as db
 import app.main as main
-from app.config import Config
-from app.engine.monitor import MonitorEngine
-from app.models import AccountRiskState, DouyinAccount, RiskEvent
-from app.platforms.xhs import XhsApiError
-from app.platforms.xhs.creator_api import XhsCreatorApi
-from app.platforms.xhs.publish import creator_check, creator_profile
-from app.risk import OperationKind
+from app.api import accounts as accounts_r
+from app.api import login as login_r
+from app.service import account_profile as profile_svc
+from app.service import browser_windows as windows_svc
+
+from app.api import publish as publish_router
+from moss.core.runtime import rt
+from moss.core.config import Config
+from application.engine.monitor import MonitorEngine
+from moss.model import AccountRiskState, DouyinAccount, RiskEvent
+from application.xhs import XhsApiError
+from application.xhs.creator_api import XhsCreatorApi
+from application.xhs.publish import creator_check, creator_profile
+from moss.core.risk import OperationKind
 
 
 class _Identity:
@@ -61,14 +68,14 @@ class _CreatorCli:
 class RiskApiGateTests(unittest.TestCase):
     def setUp(self):
         self.previous_engine = db._engine
-        self.previous_main_engine = main.engine
-        self.previous_browser = main.browser
+        self.previous_main_engine = rt.engine
+        self.previous_browser = rt.browser
         self.tmp = tempfile.TemporaryDirectory()
         db.init_db(str(Path(self.tmp.name) / "api-risk.db"))
         self.cfg = Config()
         self.browser = _BrowserStub()
-        main.browser = self.browser
-        main.engine = MonitorEngine(self.cfg, self.browser)
+        rt.browser = self.browser
+        rt.engine = MonitorEngine(self.cfg, self.browser)
         with db.get_session() as session:
             account = DouyinAccount(
                 platform="xhs",
@@ -82,15 +89,15 @@ class RiskApiGateTests(unittest.TestCase):
             self.account_id = account.id
 
     def tearDown(self):
-        main.engine = self.previous_main_engine
-        main.browser = self.previous_browser
+        rt.engine = self.previous_main_engine
+        rt.browser = self.previous_browser
         if db._engine is not None:
             db._engine.dispose()
         db._engine = self.previous_engine
         self.tmp.cleanup()
 
     def _cooldown(self):
-        main.engine.risk.record_failure(
+        rt.engine.risk.record_failure(
             self.account_id,
             OperationKind.READ_HEAVY,
             XhsApiError(
@@ -132,16 +139,16 @@ class RiskApiGateTests(unittest.TestCase):
         return payload
 
     def _profile_failure(self, error, expected_detail):
-        with patch("app.main.XhsApiClient") as client_cls:
+        with patch("app.service.account_profile.XhsApiClient") as client_cls:
             profile = AsyncMock(side_effect=error)
             client_cls.return_value.self_info = profile
             with self.assertRaises(HTTPException) as caught:
-                asyncio.run(main.refresh_account_profile(self.account_id))
+                asyncio.run(accounts_r.refresh_account_profile(self.account_id))
 
             self.assertEqual(caught.exception.status_code, 400)
             self.assertEqual(caught.exception.detail, expected_detail)
             calls_before_retry = profile.await_count
-            retry = asyncio.run(main.refresh_account_profile(self.account_id))
+            retry = asyncio.run(accounts_r.refresh_account_profile(self.account_id))
 
         self.assertEqual(retry["skipped"], True)
         self.assertEqual(profile.await_count, calls_before_retry)
@@ -150,26 +157,26 @@ class RiskApiGateTests(unittest.TestCase):
         account_uid = AsyncMock(return_value=("user-1", ""))
         fetch_notes = AsyncMock(return_value=([], None, error))
         fetch_creator = AsyncMock(return_value=([], ""))
-        with patch("app.main._xhs_account_uid", account_uid), \
-                patch("app.browser.fetch_xhs_notes", fetch_notes), \
-                patch("app.browser.fetch_creator_published", fetch_creator):
+        with patch("app.api.publish._xhs_account_uid", account_uid), \
+                patch("application.browser.fetch_xhs_notes", fetch_notes), \
+                patch("application.browser.fetch_creator_published", fetch_creator):
             with self.assertRaises(HTTPException) as caught:
-                asyncio.run(main.list_published_notes(self.account_id))
+                asyncio.run(publish_router.list_published_notes(self.account_id))
 
         self.assertEqual(caught.exception.status_code, 400)
         fetch_creator.assert_not_awaited()
         self.assertEqual(self._event_outcomes(), [expected_outcome])
 
     def _published_creator_profile_failure(self, error, expected_outcome):
-        with patch("app.platforms.xhs.XhsApiClient") as client_cls, \
-                patch("app.platforms.xhs.creator_sign.available", return_value=True), \
-                patch("app.platforms.xhs.creator_api.XhsCreatorApi") as api_cls, \
-                patch("app.browser.fetch_xhs_notes") as fetch_notes, \
-                patch("app.browser.fetch_creator_published") as fetch_creator:
+        with patch("application.xhs.XhsApiClient") as client_cls, \
+                patch("application.xhs.creator_sign.available", return_value=True), \
+                patch("application.xhs.creator_api.XhsCreatorApi") as api_cls, \
+                patch("application.browser.fetch_xhs_notes") as fetch_notes, \
+                patch("application.browser.fetch_creator_published") as fetch_creator:
             client_cls.return_value.self_info = AsyncMock(return_value={})
             api_cls.return_value.my_info.side_effect = error
             with self.assertRaises(HTTPException) as caught:
-                asyncio.run(main.list_published_notes(self.account_id))
+                asyncio.run(publish_router.list_published_notes(self.account_id))
 
         self.assertEqual(caught.exception.status_code, 400)
         fetch_notes.assert_not_called()
@@ -182,15 +189,15 @@ class RiskApiGateTests(unittest.TestCase):
             api.cookies = {"a1": "fixture"}
             api.cli = _CreatorCli(response)
 
-        with patch("app.platforms.xhs.XhsApiClient") as client_cls, \
-                patch("app.platforms.xhs.creator_sign.available", return_value=True), \
+        with patch("application.xhs.XhsApiClient") as client_cls, \
+                patch("application.xhs.creator_sign.available", return_value=True), \
                 patch.object(XhsCreatorApi, "__init__", creator_api_init), \
-                patch("app.platforms.xhs.creator_api.sign.generate_xsc", return_value={}), \
-                patch("app.browser.fetch_xhs_notes") as fetch_notes, \
-                patch("app.browser.fetch_creator_published") as fetch_creator:
+                patch("application.xhs.creator_api.sign.generate_xsc", return_value={}), \
+                patch("application.browser.fetch_xhs_notes") as fetch_notes, \
+                patch("application.browser.fetch_creator_published") as fetch_creator:
             client_cls.return_value.self_info = AsyncMock(return_value={})
             with self.assertRaises(HTTPException) as caught:
-                asyncio.run(main.list_published_notes(self.account_id))
+                asyncio.run(publish_router.list_published_notes(self.account_id))
 
         self.assertIn(caught.exception.status_code, (400, 500))
         fetch_notes.assert_not_called()
@@ -212,12 +219,12 @@ class RiskApiGateTests(unittest.TestCase):
             api.cookies = {"a1": "fixture"}
             api.cli = _CreatorCli(response)
 
-        with patch("app.platforms.xhs.creator_profile", empty_profile), \
-                patch("app.platforms.xhs.creator_sign.available", return_value=True), \
+        with patch("application.xhs.creator_profile", empty_profile), \
+                patch("application.xhs.creator_sign.available", return_value=True), \
                 patch.object(XhsCreatorApi, "__init__", creator_api_init), \
-                patch("app.platforms.xhs.creator_api.sign.generate_xsc", return_value={}):
+                patch("application.xhs.creator_api.sign.generate_xsc", return_value={}):
             with self.assertRaises(HTTPException) as caught:
-                asyncio.run(main.refresh_account_profile(self.account_id))
+                asyncio.run(accounts_r.refresh_account_profile(self.account_id))
 
         self.assertEqual(caught.exception.status_code, 400)
         self.assertEqual(self._event_outcomes(), [expected_outcome])
@@ -225,8 +232,8 @@ class RiskApiGateTests(unittest.TestCase):
     def test_profile_refresh_does_not_call_platform_during_cooldown(self):
         self._cooldown()
 
-        with patch("app.main._enrich_account_profile") as enrich:
-            result = asyncio.run(main.refresh_account_profile(self.account_id))
+        with patch("app.service.account_profile._enrich_account_profile") as enrich:
+            result = asyncio.run(accounts_r.refresh_account_profile(self.account_id))
 
         self.assertEqual(result["ok"], True)
         self.assertEqual(result["skipped"], True)
@@ -236,12 +243,12 @@ class RiskApiGateTests(unittest.TestCase):
     def test_published_list_does_not_call_platform_during_cooldown(self):
         self._cooldown()
 
-        with patch("app.main._xhs_account_uid") as account_uid, \
-                patch("app.browser.fetch_xhs_notes") as fetch_notes, \
-                patch("app.browser.fetch_creator_published") as fetch_creator:
+        with patch("app.api.publish._xhs_account_uid") as account_uid, \
+                patch("application.browser.fetch_xhs_notes") as fetch_notes, \
+                patch("application.browser.fetch_creator_published") as fetch_creator:
             account_uid.return_value = ""
             fetch_creator.return_value = ([], "")
-            result = asyncio.run(main.list_published_notes(self.account_id))
+            result = asyncio.run(publish_router.list_published_notes(self.account_id))
 
         self.assertEqual(result["notes"], [])
         self.assertEqual(result["total"], 0)
@@ -256,9 +263,9 @@ class RiskApiGateTests(unittest.TestCase):
     def test_note_media_does_not_call_platform_during_cooldown(self):
         self._cooldown()
 
-        with patch("app.platforms.xhs.XhsApiClient") as client_cls:
+        with patch("application.xhs.XhsApiClient") as client_cls:
             client_cls.return_value.note_detail = AsyncMock(return_value={})
-            result = asyncio.run(main.publish_note_media(
+            result = asyncio.run(publish_router.publish_note_media(
                 self.account_id, "note-1", "token", "pc_feed"))
 
         self.assertEqual(result["medias"], [])
@@ -269,11 +276,11 @@ class RiskApiGateTests(unittest.TestCase):
     def test_note_comments_do_not_call_platform_during_cooldown(self):
         self._cooldown()
 
-        with patch("app.platforms.xhs.XhsApiClient") as client_cls:
+        with patch("application.xhs.XhsApiClient") as client_cls:
             client_cls.return_value.note_detail_raw = AsyncMock(return_value={})
             client_cls.return_value.note_comments = AsyncMock(
                 return_value={"comments": [], "has_more": False})
-            result = asyncio.run(main.publish_note_comments(
+            result = asyncio.run(publish_router.publish_note_comments(
                 self.account_id, "note-1", "token", "pc_feed"))
 
         self.assertEqual(result["comments"], [])
@@ -294,9 +301,9 @@ class RiskApiGateTests(unittest.TestCase):
             self.assertTrue(lock.locked())
             return ([{"id": "note-1", "title": "Fixture"}], "")
 
-        with patch("app.main._xhs_account_uid", no_public_uid), \
-                patch("app.browser.fetch_creator_published", creator_fallback):
-            result = asyncio.run(main.list_published_notes(self.account_id))
+        with patch("app.api.publish._xhs_account_uid", no_public_uid), \
+                patch("application.browser.fetch_creator_published", creator_fallback):
+            result = asyncio.run(publish_router.list_published_notes(self.account_id))
 
         self.assertEqual(result, {
             "notes": [{
@@ -322,8 +329,8 @@ class RiskApiGateTests(unittest.TestCase):
             self.assertTrue(lock.locked())
             return ("ok", "") if detailed else "ok"
 
-        with patch("app.main._enrich_account_profile", enrich):
-            result = asyncio.run(main.refresh_account_profile(self.account_id))
+        with patch("app.service.account_profile._enrich_account_profile", enrich):
+            result = asyncio.run(accounts_r.refresh_account_profile(self.account_id))
 
         self.assertEqual(result, {
             "ok": True,
@@ -347,11 +354,11 @@ class RiskApiGateTests(unittest.TestCase):
             )],
         )
 
-        with patch("app.platforms.xhs.XhsApiClient") as client_cls, \
-                patch("app.platforms.xhs.parse_note_detail", return_value=work):
+        with patch("application.xhs.XhsApiClient") as client_cls, \
+                patch("application.xhs.parse_note_detail", return_value=work):
             client_cls.return_value.note_detail = AsyncMock(
                 return_value={"note_id": "note-1"})
-            result = asyncio.run(main.publish_note_media(
+            result = asyncio.run(publish_router.publish_note_media(
                 self.account_id, "note-1", "token", "pc_feed"))
 
         self.assertEqual(result, {
@@ -368,13 +375,13 @@ class RiskApiGateTests(unittest.TestCase):
         self.assertEqual(self._operation_kinds(), [OperationKind.READ_HEAVY.value])
 
     def test_note_media_preserves_http_400_error_mapping(self):
-        with patch("app.platforms.xhs.XhsApiClient") as client_cls:
+        with patch("application.xhs.XhsApiClient") as client_cls:
             client_cls.return_value.note_detail = AsyncMock(side_effect=XhsApiError(
                 "fixture failure", category="business", status_code=400,
                 signal="business_error"))
 
             with self.assertRaises(HTTPException) as caught:
-                asyncio.run(main.publish_note_media(
+                asyncio.run(publish_router.publish_note_media(
                     self.account_id, "note-1", "token", "pc_feed"))
 
         self.assertEqual(caught.exception.status_code, 400)
@@ -406,10 +413,10 @@ class RiskApiGateTests(unittest.TestCase):
             "connection timeout", category="network", status_code=503,
             signal="network_failure")
 
-        with patch("app.main.XhsApiClient") as client_cls:
+        with patch("app.service.account_profile.XhsApiClient") as client_cls:
             client_cls.return_value.self_info = AsyncMock(side_effect=error)
             with self.assertRaises(HTTPException) as caught:
-                asyncio.run(main.refresh_account_profile(self.account_id))
+                asyncio.run(accounts_r.refresh_account_profile(self.account_id))
 
         self.assertEqual(caught.exception.status_code, 400)
         self.assertEqual(
@@ -426,9 +433,9 @@ class RiskApiGateTests(unittest.TestCase):
             session.commit()
         fetch_profile = AsyncMock(side_effect=TimeoutError("connection timeout"))
 
-        with patch("app.main.fetch_self_profile", fetch_profile):
+        with patch("app.service.account_profile.fetch_self_profile", fetch_profile):
             with self.assertRaises(HTTPException) as caught:
-                asyncio.run(main.refresh_account_profile(self.account_id))
+                asyncio.run(accounts_r.refresh_account_profile(self.account_id))
 
         self.assertEqual(caught.exception.status_code, 400)
         self.assertEqual(
@@ -440,8 +447,8 @@ class RiskApiGateTests(unittest.TestCase):
     def test_profile_logged_out_maps_to_auth_but_default_interface_stays_string(self):
         profile = AsyncMock(return_value=({}, "logged_out"))
 
-        with patch("app.main._xhs_profile", profile):
-            result = asyncio.run(main._enrich_account_profile(
+        with patch("app.service.account_profile._xhs_profile", profile):
+            result = asyncio.run(profile_svc._enrich_account_profile(
                 self.account_id,
                 '{"cookies":[{"name":"a1","value":"fixture"}]}'))
 
@@ -452,10 +459,10 @@ class RiskApiGateTests(unittest.TestCase):
             account.status = "active"
             session.add(account)
             session.commit()
-        with patch("app.main._xhs_profile", AsyncMock(
+        with patch("app.service.account_profile._xhs_profile", AsyncMock(
                 return_value=({}, "logged_out"))):
             with self.assertRaises(HTTPException) as caught:
-                asyncio.run(main.refresh_account_profile(self.account_id))
+                asyncio.run(accounts_r.refresh_account_profile(self.account_id))
 
         self.assertEqual(caught.exception.status_code, 400)
         self.assertEqual(caught.exception.detail, "登录态已失效,请点「重新登录」")
@@ -465,8 +472,8 @@ class RiskApiGateTests(unittest.TestCase):
         error = XhsApiError(
             "challenge", category="risk", status_code=429,
             signal="http_429")
-        with patch("app.platforms.xhs.creator_sign.available", return_value=True), \
-                patch("app.platforms.xhs.creator_api.XhsCreatorApi") as api_cls:
+        with patch("application.xhs.creator_sign.available", return_value=True), \
+                patch("application.xhs.creator_api.XhsCreatorApi") as api_cls:
             api_cls.return_value.my_info.side_effect = error
 
             default = asyncio.run(creator_profile(
@@ -481,8 +488,8 @@ class RiskApiGateTests(unittest.TestCase):
 
     def test_creator_check_default_contract_and_detailed_raw_error(self):
         error = TimeoutError("connection timeout")
-        with patch("app.platforms.xhs.creator_sign.available", return_value=True), \
-                patch("app.platforms.xhs.creator_api.XhsCreatorApi") as api_cls:
+        with patch("application.xhs.creator_sign.available", return_value=True), \
+                patch("application.xhs.creator_api.XhsCreatorApi") as api_cls:
             api_cls.return_value.ping.side_effect = error
 
             default = asyncio.run(creator_check(
@@ -506,7 +513,7 @@ class RiskApiGateTests(unittest.TestCase):
         api.a1 = "fixture"
         api.cookies = {"a1": "fixture"}
         api.cli = _CreatorCli(response)
-        with patch("app.platforms.xhs.creator_api.sign.generate_xsc", return_value={}):
+        with patch("application.xhs.creator_api.sign.generate_xsc", return_value={}):
             default_result = api.my_info()
             detailed_result = api.my_info(detailed=True)
             default_ping = api.ping()
@@ -524,9 +531,9 @@ class RiskApiGateTests(unittest.TestCase):
             instance.cookies = {"a1": "fixture"}
             instance.cli = _CreatorCli(response)
 
-        with patch("app.platforms.xhs.creator_sign.available", return_value=True), \
+        with patch("application.xhs.creator_sign.available", return_value=True), \
                 patch.object(XhsCreatorApi, "__init__", creator_api_init), \
-                patch("app.platforms.xhs.creator_api.sign.generate_xsc", return_value={}):
+                patch("application.xhs.creator_api.sign.generate_xsc", return_value={}):
             default_profile = asyncio.run(creator_profile(
                 '{"cookies":[{"name":"a1","value":"fixture"}]}'))
             default_check = asyncio.run(creator_check(
@@ -535,8 +542,8 @@ class RiskApiGateTests(unittest.TestCase):
         self.assertIsNone(default_profile)
         self.assertIsNone(default_check)
 
-        with patch("app.platforms.xhs.creator_sign.available", return_value=True), \
-                patch("app.platforms.xhs.creator_api.XhsCreatorApi") as api_cls:
+        with patch("application.xhs.creator_sign.available", return_value=True), \
+                patch("application.xhs.creator_api.XhsCreatorApi") as api_cls:
             api_cls.return_value.ping.return_value = (False, "risk captcha")
 
             default_check = asyncio.run(creator_check(
@@ -554,8 +561,8 @@ class RiskApiGateTests(unittest.TestCase):
     def test_creator_check_login_expiry_returns_structured_auth_in_detailed_mode(self):
         response = {
             "success": False, "code": 0, "msg": "登录过期", "data": {}}
-        with patch("app.platforms.xhs.creator_sign.available", return_value=True), \
-                patch("app.platforms.xhs.creator_api.XhsCreatorApi") as api_cls:
+        with patch("application.xhs.creator_sign.available", return_value=True), \
+                patch("application.xhs.creator_api.XhsCreatorApi") as api_cls:
             api_cls.return_value.ping.return_value = (
                 False, "登录过期", response)
 
@@ -623,14 +630,14 @@ class RiskApiGateTests(unittest.TestCase):
         async def empty_profile(_state, proxy="", *, preserve_error=False):
             return (None, "empty") if preserve_error else None
 
-        with patch("app.platforms.xhs.creator_profile", empty_profile), \
-                patch("app.platforms.xhs.creator_sign.available", return_value=True), \
-                patch("app.platforms.xhs.creator_api.XhsCreatorApi") as api_cls:
+        with patch("application.xhs.creator_profile", empty_profile), \
+                patch("application.xhs.creator_sign.available", return_value=True), \
+                patch("application.xhs.creator_api.XhsCreatorApi") as api_cls:
             api_cls.return_value.ping.return_value = (False, "登录过期")
             with self.assertRaises(HTTPException) as caught:
-                asyncio.run(main.refresh_account_profile(self.account_id))
+                asyncio.run(accounts_r.refresh_account_profile(self.account_id))
             calls_before_retry = api_cls.return_value.ping.call_count
-            retry = asyncio.run(main.refresh_account_profile(self.account_id))
+            retry = asyncio.run(accounts_r.refresh_account_profile(self.account_id))
 
         self.assertEqual(caught.exception.status_code, 400)
         self.assertEqual(caught.exception.detail, "登录态已失效,请点「重新登录」")
@@ -651,12 +658,12 @@ class RiskApiGateTests(unittest.TestCase):
         error = XhsApiError(
             "challenge", category="risk", status_code=429,
             signal="http_429")
-        with patch("app.platforms.xhs.creator_profile", empty_profile), \
-                patch("app.platforms.xhs.creator_sign.available", return_value=True), \
-                patch("app.platforms.xhs.creator_api.XhsCreatorApi") as api_cls:
+        with patch("application.xhs.creator_profile", empty_profile), \
+                patch("application.xhs.creator_sign.available", return_value=True), \
+                patch("application.xhs.creator_api.XhsCreatorApi") as api_cls:
             api_cls.return_value.ping.side_effect = error
             with self.assertRaises(HTTPException) as caught:
-                asyncio.run(main.refresh_account_profile(self.account_id))
+                asyncio.run(accounts_r.refresh_account_profile(self.account_id))
 
         self.assertEqual(caught.exception.status_code, 400)
         self.assertEqual(self._event_outcomes(), ["risk"])
@@ -665,13 +672,13 @@ class RiskApiGateTests(unittest.TestCase):
         error = XhsApiError(
             "challenge", category="risk", status_code=429,
             signal="http_429")
-        with patch("app.platforms.xhs.XhsApiClient") as client_cls, \
-                patch("app.platforms.xhs.creator_profile") as creator_profile, \
-                patch("app.browser.fetch_xhs_notes") as fetch_notes, \
-                patch("app.browser.fetch_creator_published") as fetch_creator:
+        with patch("application.xhs.XhsApiClient") as client_cls, \
+                patch("application.xhs.creator_profile") as creator_profile, \
+                patch("application.browser.fetch_xhs_notes") as fetch_notes, \
+                patch("application.browser.fetch_creator_published") as fetch_creator:
             client_cls.return_value.self_info = AsyncMock(side_effect=error)
             with self.assertRaises(HTTPException) as caught:
-                asyncio.run(main.list_published_notes(self.account_id))
+                asyncio.run(publish_router.list_published_notes(self.account_id))
 
         self.assertEqual(caught.exception.status_code, 400)
         creator_profile.assert_not_called()
@@ -709,10 +716,10 @@ class RiskApiGateTests(unittest.TestCase):
         fetch_creator = AsyncMock(return_value=(
             [{"id": "note-1", "title": "Fixture"}], ""))
 
-        with patch("app.main._xhs_account_uid", account_uid), \
-                patch("app.browser.fetch_xhs_notes", fetch_notes), \
-                patch("app.browser.fetch_creator_published", fetch_creator):
-            result = asyncio.run(main.list_published_notes(self.account_id))
+        with patch("app.api.publish._xhs_account_uid", account_uid), \
+                patch("application.browser.fetch_xhs_notes", fetch_notes), \
+                patch("application.browser.fetch_creator_published", fetch_creator):
+            result = asyncio.run(publish_router.list_published_notes(self.account_id))
 
         self.assertEqual(result["notes"][0]["note_id"], "note-1")
         self.assertEqual(result["total"], 1)
@@ -723,11 +730,11 @@ class RiskApiGateTests(unittest.TestCase):
         async def no_uid(_state, _proxy, *, detailed=False):
             return ("", "") if detailed else ""
 
-        with patch("app.main._xhs_account_uid", no_uid), \
-                patch("app.browser.fetch_creator_published", AsyncMock(
+        with patch("app.api.publish._xhs_account_uid", no_uid), \
+                patch("application.browser.fetch_creator_published", AsyncMock(
                     return_value=([], "logged_out:创作平台未登录"))):
             with self.assertRaises(HTTPException) as caught:
-                asyncio.run(main.list_published_notes(self.account_id))
+                asyncio.run(publish_router.list_published_notes(self.account_id))
 
         self.assertEqual(caught.exception.status_code, 400)
         self.assertEqual(
@@ -739,7 +746,7 @@ class RiskApiGateTests(unittest.TestCase):
             side_effect=RuntimeError("identity fixture failure"))
         try:
             with self.assertRaises(HTTPException) as caught:
-                asyncio.run(main.list_published_notes(self.account_id))
+                asyncio.run(publish_router.list_published_notes(self.account_id))
         finally:
             self.browser.identity_for = original_identity_for
 
@@ -753,11 +760,11 @@ class RiskApiGateTests(unittest.TestCase):
         async def no_uid(_state, _proxy, *, detailed=False):
             return ("", "") if detailed else ""
 
-        with patch("app.main._xhs_account_uid", no_uid), \
-                patch("app.browser.fetch_creator_published", AsyncMock(
+        with patch("app.api.publish._xhs_account_uid", no_uid), \
+                patch("application.browser.fetch_creator_published", AsyncMock(
                     side_effect=RuntimeError("SECRET_PUBLISHED_MARKER"))):
             with self.assertRaises(HTTPException) as caught:
-                asyncio.run(main.list_published_notes(self.account_id))
+                asyncio.run(publish_router.list_published_notes(self.account_id))
 
         self.assertEqual(caught.exception.status_code, 500)
         self.assertEqual(caught.exception.detail, "读取已发布作品失败")
@@ -769,10 +776,10 @@ class RiskApiGateTests(unittest.TestCase):
         async def no_uid(_state, _proxy, *, detailed=False):
             return ("", "") if detailed else ""
 
-        with patch("app.main._xhs_account_uid", no_uid), \
-                patch("app.browser.fetch_creator_published", AsyncMock(
+        with patch("app.api.publish._xhs_account_uid", no_uid), \
+                patch("application.browser.fetch_creator_published", AsyncMock(
                     return_value=([], "creator endpoint unavailable"))):
-            result = asyncio.run(main.list_published_notes(self.account_id))
+            result = asyncio.run(publish_router.list_published_notes(self.account_id))
 
         self.assertEqual(result, {
             "notes": [],
@@ -782,11 +789,11 @@ class RiskApiGateTests(unittest.TestCase):
         self.assertEqual(self._event_outcomes(), ["business"])
 
     def test_note_comments_preserves_success_payload_and_uses_heavy_read(self):
-        with patch("app.platforms.xhs.XhsApiClient") as client_cls:
+        with patch("application.xhs.XhsApiClient") as client_cls:
             client_cls.return_value.note_detail_raw = AsyncMock(return_value={})
             client_cls.return_value.note_comments = AsyncMock(
                 return_value={"comments": [], "has_more": False})
-            result = asyncio.run(main.publish_note_comments(
+            result = asyncio.run(publish_router.publish_note_comments(
                 self.account_id, "note-1", "token", "pc_feed"))
 
         self.assertEqual(result, {
@@ -797,27 +804,27 @@ class RiskApiGateTests(unittest.TestCase):
         self.assertEqual(self._operation_kinds(), [OperationKind.READ_HEAVY.value])
 
     def test_note_comments_preserves_http_400_error_mapping(self):
-        with patch("app.platforms.xhs.XhsApiClient") as client_cls:
+        with patch("application.xhs.XhsApiClient") as client_cls:
             client_cls.return_value.note_detail_raw = AsyncMock(return_value={})
             client_cls.return_value.note_comments = AsyncMock(
                 side_effect=XhsApiError(
                     "fixture failure", category="business", status_code=400,
                     signal="business_error"))
             with self.assertRaises(HTTPException) as caught:
-                asyncio.run(main.publish_note_comments(
+                asyncio.run(publish_router.publish_note_comments(
                     self.account_id, "note-1", "token", "pc_feed"))
 
         self.assertEqual(caught.exception.status_code, 400)
         self.assertEqual(caught.exception.detail, "取评论失败:fixture failure")
 
     def test_note_media_unknown_parser_exception_is_stable_5xx(self):
-        with patch("app.platforms.xhs.XhsApiClient") as client_cls, \
-                patch("app.platforms.xhs.parse_note_detail",
+        with patch("application.xhs.XhsApiClient") as client_cls, \
+                patch("application.xhs.parse_note_detail",
                       side_effect=RuntimeError("SECRET_MEDIA_MARKER")):
             client_cls.return_value.note_detail = AsyncMock(
                 return_value={"note_id": "note-1"})
             with self.assertRaises(HTTPException) as caught:
-                asyncio.run(main.publish_note_media(
+                asyncio.run(publish_router.publish_note_media(
                     self.account_id, "note-1", "token", "pc_feed"))
 
         self.assertEqual(caught.exception.status_code, 500)
@@ -827,10 +834,10 @@ class RiskApiGateTests(unittest.TestCase):
         self.assertEqual(self._event_outcomes(), ["business"])
 
     def test_note_comments_unknown_client_exception_is_stable_5xx(self):
-        with patch("app.platforms.xhs.XhsApiClient",
+        with patch("application.xhs.XhsApiClient",
                    side_effect=RuntimeError("SECRET_COMMENTS_MARKER")):
             with self.assertRaises(HTTPException) as caught:
-                asyncio.run(main.publish_note_comments(
+                asyncio.run(publish_router.publish_note_comments(
                     self.account_id, "note-1", "token", "pc_feed"))
 
         self.assertEqual(caught.exception.status_code, 500)
@@ -840,14 +847,14 @@ class RiskApiGateTests(unittest.TestCase):
         self.assertEqual(self._event_outcomes(), ["business"])
 
     def test_note_comments_timeout_stops_before_comments_and_records_network_once(self):
-        with patch("app.platforms.xhs.XhsApiClient") as client_cls:
+        with patch("application.xhs.XhsApiClient") as client_cls:
             client = client_cls.return_value
             client.note_detail_raw = AsyncMock(
                 side_effect=TimeoutError("connection timeout"))
             client.note_comments = AsyncMock(
                 return_value={"comments": [], "has_more": False})
             with self.assertRaises(HTTPException) as caught:
-                asyncio.run(main.publish_note_comments(
+                asyncio.run(publish_router.publish_note_comments(
                     self.account_id, "note-1", "token", "pc_feed"))
 
         self.assertEqual(caught.exception.status_code, 400)
@@ -860,8 +867,8 @@ class RiskApiGateTests(unittest.TestCase):
             medias=[SimpleNamespace(
                 url="https://fixture/image.jpg", kind="image", ext="jpg", index=0)],
         )
-        with patch("app.platforms.xhs.XhsApiClient") as client_cls, \
-                patch("app.platforms.xhs.parse_note_detail", return_value=work):
+        with patch("application.xhs.XhsApiClient") as client_cls, \
+                patch("application.xhs.parse_note_detail", return_value=work):
             client_cls.return_value.note_detail = AsyncMock(return_value={})
             response = self._asgi_get(
                 f"/api/publish/note-media?account_id={self.account_id}"
@@ -872,7 +879,7 @@ class RiskApiGateTests(unittest.TestCase):
 
     def test_asgi_deferred_response_is_serializable_and_has_no_internal_markers(self):
         self._cooldown()
-        with patch("app.platforms.xhs.XhsApiClient") as client_cls:
+        with patch("application.xhs.XhsApiClient") as client_cls:
             response = self._asgi_get(
                 f"/api/publish/note-media?account_id={self.account_id}"
                 "&note_id=note-1&xsec_token=token")
@@ -882,7 +889,7 @@ class RiskApiGateTests(unittest.TestCase):
         client_cls.assert_not_called()
 
     def test_asgi_expected_business_error_is_a_clean_serializable_4xx(self):
-        with patch("app.platforms.xhs.XhsApiClient") as client_cls:
+        with patch("application.xhs.XhsApiClient") as client_cls:
             client_cls.return_value.note_detail = AsyncMock(side_effect=XhsApiError(
                 "expected fixture failure", category="business", status_code=400,
                 signal="business_error"))
@@ -894,7 +901,7 @@ class RiskApiGateTests(unittest.TestCase):
         self.assertIn("expected fixture failure", payload["detail"])
 
     def test_asgi_unexpected_exception_is_a_clean_serializable_5xx(self):
-        with patch("app.platforms.xhs.XhsApiClient",
+        with patch("application.xhs.XhsApiClient",
                    side_effect=RuntimeError("SECRET_ASGI_MARKER")):
             response = self._asgi_get(
                 f"/api/publish/note-media?account_id={self.account_id}"
@@ -905,12 +912,12 @@ class RiskApiGateTests(unittest.TestCase):
 
 
     def test_delete_account_removes_risk_rows_before_id_reuse(self):
-        main.engine.risk.record_failure(
+        rt.engine.risk.record_failure(
             self.account_id,
             OperationKind.COMMENT,
             XhsApiError("challenge", category="risk", status_code=429),
         )
-        asyncio.run(main.del_account(self.account_id))
+        asyncio.run(accounts_r.del_account(self.account_id))
 
         with db.get_session() as session:
             self.assertIsNone(session.get(AccountRiskState, self.account_id))
@@ -923,7 +930,7 @@ class RiskApiGateTests(unittest.TestCase):
             replacement_id = replacement.id
 
         self.assertEqual(replacement_id, self.account_id)
-        decision = main.engine.risk.preflight(
+        decision = rt.engine.risk.preflight(
             replacement_id, OperationKind.READ_LIGHT)
         self.assertTrue(decision.allowed)
 

@@ -6,20 +6,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from app.browser.cdp import (
-    CdpProxyAuthController,
-    CdpLaunchError,
-    CdpProfileConflictError,
-    CdpProxyError,
-    ChromeLocator,
-    ProcessInfo,
-    ProcessInspector,
-    XhsCdpBackend,
-    chrome_launch_args,
-)
-from app.browser.identity import Identity
-from app.browser.manager import BrowserManager
-from app.browser.proxy import ProxyPlan
+from application.browser.cdp import (CdpProxyAuthController, CdpLaunchError, CdpProfileConflictError, CdpProxyError, ChromeLocator, ProcessInfo, ProcessInspector, XhsCdpBackend, chrome_launch_args)
+from application.browser.identity import Identity
+from application.browser.manager import BrowserManager
+from moss.common.proxy_plan import ProxyPlan
 
 
 class ChromeLocatorTests(unittest.TestCase):

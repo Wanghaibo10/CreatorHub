@@ -7,29 +7,14 @@ from unittest.mock import patch
 
 from sqlmodel import select
 
-import app.db as db
+import moss.common.db as db
 import app.main as main
-from app.browser.identity import Identity
-from app.config import Config, RiskControlConfig, load_config
-from app.models import (
-    AccountRiskState,
-    CommentTask,
-    CommentWatch,
-    ContentRecord,
-    DouyinAccount,
-    MonitorTarget,
-    ProxyPool,
-    PublishTask,
-    RiskEvent,
-)
-from app.risk import (
-    OperationKind,
-    RiskCategory,
-    RiskController,
-    classify_platform_error,
-    network_key,
-)
-from app.engine.monitor import MonitorEngine, _round_robin_by_account
+from moss.core.runtime import rt
+from application.browser.identity import Identity
+from moss.core.config import Config, RiskControlConfig, load_config
+from moss.model import (AccountRiskState, CommentTask, CommentWatch, ContentRecord, DouyinAccount, MonitorTarget, ProxyPool, PublishTask, RiskEvent)
+from moss.core.risk import (OperationKind, RiskCategory, RiskController, classify_platform_error, network_key)
+from application.engine.monitor import MonitorEngine, _round_robin_by_account
 
 
 class _BrowserStub:
@@ -610,9 +595,9 @@ risk_control:
         self.assertEqual(browser.samples, [123.5])
 
     def test_lifespan_prunes_once_and_updates_same_day_watermark(self):
-        previous_browser = main.browser
-        previous_engine = main.engine
-        previous_receiver = main.im_receiver
+        previous_browser = rt.browser
+        previous_engine = rt.engine
+        previous_receiver = rt.im_receiver
 
         class BrowserStub:
             def __init__(self):
@@ -641,21 +626,21 @@ risk_control:
                     patch.object(MonitorEngine, "start", autospec=True), \
                     patch.object(RiskController, "prune_events", autospec=True,
                                  return_value=0) as prune_events, \
-                    patch("app.engine.im_receiver.ImReceiverManager",
+                    patch("application.engine.im_receiver.ImReceiverManager",
                           return_value=ReceiverStub()):
                 async def scenario():
                     async with main.lifespan(main.app):
                         startup_now = prune_events.call_args.kwargs["now"]
                         self.assertEqual(
-                            main.engine._prune_risk_events_if_due(
+                            rt.engine._prune_risk_events_if_due(
                                 startup_now), 0)
 
                 asyncio.run(scenario())
             self.assertEqual(prune_events.call_count, 1)
         finally:
-            main.browser = previous_browser
-            main.engine = previous_engine
-            main.im_receiver = previous_receiver
+            rt.browser = previous_browser
+            rt.engine = previous_engine
+            rt.im_receiver = previous_receiver
 
     def test_three_spaced_light_reads_reduce_one_risk_level(self):
         account_id = self._account()

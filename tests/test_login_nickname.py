@@ -1,6 +1,6 @@
 import unittest
 
-from app.browser.login import _read_nickname
+from application.browser.login import _read_nickname
 
 
 class FakePage:

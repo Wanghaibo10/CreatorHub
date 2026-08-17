@@ -1,12 +1,6 @@
 import unittest
 
-from app.browser.fetcher import (
-    _extract_post_author,
-    _extract_user,
-    _fill_missing_user_fields,
-    _self_profile_session_is_invalid,
-    _user_from_web_storage,
-)
+from application.browser.fetcher import (_extract_post_author, _extract_user, _fill_missing_user_fields, _self_profile_session_is_invalid, _user_from_web_storage)
 
 
 class DouyinSelfProfileFallbackTests(unittest.TestCase):

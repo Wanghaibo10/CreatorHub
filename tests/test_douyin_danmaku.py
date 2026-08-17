@@ -1,10 +1,10 @@
 import unittest
 
-from app.browser.fetcher import _danmaku_position_ms, _dig_danmaku_list, _is_danmaku_url
-from app.config import EngineConfig
-from app.engine.monitor import _danmaku_matches
-from app.models import DanmakuRecord, DanmakuWatch, SQLModel
-from app.platforms.douyin.extract import danmaku_key, parse_danmaku
+from application.browser.fetcher import _danmaku_position_ms, _dig_danmaku_list, _is_danmaku_url
+from moss.core.config import EngineConfig
+from application.engine.monitor import _danmaku_matches
+from moss.model import DanmakuRecord, DanmakuWatch, SQLModel
+from application.douyin.extract import danmaku_key, parse_danmaku
 
 
 class DanmakuParserTests(unittest.TestCase):

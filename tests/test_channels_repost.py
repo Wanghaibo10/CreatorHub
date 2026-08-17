@@ -3,10 +3,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import app.db as db
-from app.engine.monitor import MonitorEngine
+import moss.common.db as db
+from application.engine.monitor import MonitorEngine
 from app.main import app
-from app.models import ContentRecord, PublishTask
+from moss.model import ContentRecord, PublishTask
 
 
 class ChannelsRepostTests(unittest.TestCase):

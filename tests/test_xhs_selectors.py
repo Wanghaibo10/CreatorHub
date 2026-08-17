@@ -1,12 +1,7 @@
 import asyncio
 import unittest
 
-from app.browser.xhs_selectors import (
-    find_present,
-    find_visible,
-    selector_candidates,
-    selector_diagnostic,
-)
+from application.browser.xhs_selectors import (find_present, find_visible, selector_candidates, selector_diagnostic)
 
 
 class _Locator:

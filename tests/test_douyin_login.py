@@ -2,8 +2,8 @@ import json
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from app.browser.identity import Identity
-from app.browser.login import interactive_login
+from application.browser.identity import Identity
+from application.browser.login import interactive_login
 
 
 class _Locator:
@@ -84,7 +84,7 @@ class DouyinReloginTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_force_reauth_clears_stale_cookies_before_polling(self):
         context = _Context()
-        with patch("app.browser.login.asyncio.sleep", new=AsyncMock()):
+        with patch("application.browser.login.asyncio.sleep", new=AsyncMock()):
             ok, state, nickname = await interactive_login(
                 _Manager(context), self._identity(),
                 timeout_seconds=1, force_reauth=True,
@@ -100,7 +100,7 @@ class DouyinReloginTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_visible_login_dialog_blocks_cookie_only_success(self):
         context = _Context(login_visible=True, rotate_after_clear=False)
-        with patch("app.browser.login.asyncio.sleep", new=AsyncMock()):
+        with patch("application.browser.login.asyncio.sleep", new=AsyncMock()):
             ok, state, _nickname = await interactive_login(
                 _Manager(context), self._identity(), timeout_seconds=0.1,
             )

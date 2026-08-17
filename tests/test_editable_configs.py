@@ -5,16 +5,11 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import HTTPException
-import app.db as db
-from app.main import (
-    PublishUpdate,
-    TargetUpdate,
-    WatchUpdate,
-    update_monitor,
-    update_publish,
-    update_watch,
-)
-from app.models import CommentWatch, DouyinAccount, MonitorTarget, PublishTask
+import moss.common.db as db
+from app.api.publish import PublishUpdate, update_publish
+from app.api.monitors import TargetUpdate, update_monitor
+from app.api.watches import WatchUpdate, update_watch
+from moss.model import CommentWatch, DouyinAccount, MonitorTarget, PublishTask
 
 
 class EditableConfigTests(unittest.TestCase):

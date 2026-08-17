@@ -5,24 +5,8 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
-from app.models import (
-    CommentRecord,
-    CommentWatch,
-    ContentRecord,
-    DanmakuRecord,
-    DanmakuWatch,
-    MonitorTarget,
-)
-from app.reporting import (
-    build_comments_report,
-    build_contents_report,
-    build_danmaku_report,
-    build_danmaku_watches_report,
-    build_monitor_report,
-    build_share_history_report,
-    build_targets_report,
-    build_watches_report,
-)
+from moss.model import (CommentRecord, CommentWatch, ContentRecord, DanmakuRecord, DanmakuWatch, MonitorTarget)
+from app.service.reporting import (build_comments_report, build_contents_report, build_danmaku_report, build_danmaku_watches_report, build_monitor_report, build_share_history_report, build_targets_report, build_watches_report)
 
 
 class MonitorReportTests(unittest.TestCase):

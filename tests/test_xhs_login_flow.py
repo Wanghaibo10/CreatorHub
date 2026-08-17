@@ -4,12 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from patchright.async_api import async_playwright
 
-from app.browser.login import (
-    XhsSecurityVerificationRequired,
-    _is_xhs_security_verification_url,
-    _reuse_or_create_login_page,
-    interactive_xhs_login,
-)
+from application.browser.login import (XhsSecurityVerificationRequired, _is_xhs_security_verification_url, _reuse_or_create_login_page, interactive_xhs_login)
 
 
 class XhsLoginPageTests(unittest.IsolatedAsyncioTestCase):
@@ -143,7 +138,7 @@ class XhsWebLoginIntegrationTests(unittest.IsolatedAsyncioTestCase):
         manager.xhs_interaction.pause = AsyncMock()
         with (
             patch(
-                "app.browser.login._read_xhs_nickname",
+                "application.browser.login._read_xhs_nickname",
                 new_callable=AsyncMock,
                 return_value="普通账号",
             ),

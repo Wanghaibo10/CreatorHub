@@ -7,13 +7,9 @@ from pathlib import Path
 
 from patchright.async_api import async_playwright
 
-from app.browser.cdp import (
-    CdpProxyAuthController,
-    ChromeLocator,
-    XhsCdpBackend,
-)
-from app.browser.identity import Identity
-from app.browser.proxy import ProxyPlan
+from application.browser.cdp import CdpProxyAuthController, ChromeLocator, XhsCdpBackend
+from application.browser.identity import Identity
+from moss.common.proxy_plan import ProxyPlan
 from tests.fixtures.cdp_site import running_fixture_site
 
 

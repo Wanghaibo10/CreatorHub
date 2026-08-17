@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-from app.browser.identity import Identity
+from application.browser.identity import Identity
 
 
 class _Locator:
@@ -231,7 +231,7 @@ class XhsBrowserWriteTests(unittest.TestCase):
             platform="xhs", identity_mode="native")
 
     def test_publish_uses_visible_page_and_clicks_submit_once(self):
-        from app.platforms.xhs.browser_writes import publish_xhs_browser
+        from application.xhs.browser_writes import publish_xhs_browser
 
         async def scenario(media_path):
             page = _Page()
@@ -256,7 +256,7 @@ class XhsBrowserWriteTests(unittest.TestCase):
             asyncio.run(scenario(str(media)))
 
     def test_disconnect_after_submit_is_uncertain_and_never_resubmits(self):
-        from app.platforms.xhs.browser_writes import publish_xhs_browser
+        from application.xhs.browser_writes import publish_xhs_browser
 
         async def scenario(media_path):
             page = _Page(disconnect_after_submit=True)
@@ -273,7 +273,7 @@ class XhsBrowserWriteTests(unittest.TestCase):
             asyncio.run(scenario(str(media)))
 
     def test_publish_page_open_failure_stays_a_pre_submit_failure(self):
-        from app.platforms.xhs.browser_writes import publish_xhs_browser
+        from application.xhs.browser_writes import publish_xhs_browser
 
         class BrokenManager(_Manager):
             @asynccontextmanager
@@ -295,7 +295,7 @@ class XhsBrowserWriteTests(unittest.TestCase):
             asyncio.run(scenario(str(media)))
 
     def test_static_published_navigation_is_not_success_evidence(self):
-        from app.platforms.xhs.browser_writes import _visible_success
+        from application.xhs.browser_writes import _visible_success
 
         class PageWithPublishedNavigation(_Page):
             def get_by_text(self, text, **_kwargs):
@@ -307,7 +307,7 @@ class XhsBrowserWriteTests(unittest.TestCase):
             PageWithPublishedNavigation())))
 
     def test_http_200_business_rejection_is_not_publish_success(self):
-        from app.platforms.xhs.browser_writes import publish_xhs_browser
+        from application.xhs.browser_writes import publish_xhs_browser
 
         async def scenario(media_path):
             page = _Page(
@@ -327,8 +327,8 @@ class XhsBrowserWriteTests(unittest.TestCase):
             asyncio.run(scenario(str(media)))
 
     def test_publish_dispatch_defaults_to_browser_without_api_fallback(self):
-        from app.platforms.xhs import publish as publish_module
-        from app.platforms.xhs.browser_writes import XhsWriteOutcome
+        from application.xhs import publish as publish_module
+        from application.xhs.browser_writes import XhsWriteOutcome
 
         async def scenario(media_path):
             browser_result = XhsWriteOutcome(
@@ -353,7 +353,7 @@ class XhsBrowserWriteTests(unittest.TestCase):
             asyncio.run(scenario(str(media)))
 
     def test_reply_target_missing_never_falls_back_to_top_level_comment(self):
-        from app.platforms.xhs.browser_writes import comment_xhs_browser
+        from application.xhs.browser_writes import comment_xhs_browser
 
         async def scenario():
             page = _CommentPage(target_present=False)
@@ -368,7 +368,7 @@ class XhsBrowserWriteTests(unittest.TestCase):
         asyncio.run(scenario())
 
     def test_comment_disconnect_after_submit_is_uncertain_and_not_retried(self):
-        from app.platforms.xhs.browser_writes import comment_xhs_browser
+        from application.xhs.browser_writes import comment_xhs_browser
 
         async def scenario():
             page = _CommentPage(disconnect_after_submit=True)
@@ -384,7 +384,7 @@ class XhsBrowserWriteTests(unittest.TestCase):
         asyncio.run(scenario())
 
     def test_preexisting_identical_comment_is_not_new_success_evidence(self):
-        from app.platforms.xhs.browser_writes import comment_xhs_browser
+        from application.xhs.browser_writes import comment_xhs_browser
 
         async def scenario():
             content = "页面原本已有的相同评论"
@@ -399,7 +399,7 @@ class XhsBrowserWriteTests(unittest.TestCase):
         asyncio.run(scenario())
 
     def test_missing_publish_submit_reports_only_safe_selector_diagnostic(self):
-        from app.platforms.xhs.browser_writes import publish_xhs_browser
+        from application.xhs.browser_writes import publish_xhs_browser
 
         class MissingSubmitPage(_Page):
             def locator(self, selector):
@@ -442,7 +442,7 @@ class XhsBrowserWriteTests(unittest.TestCase):
             asyncio.run(scenario(str(media)))
 
     def test_missing_comment_editor_diagnostic_excludes_token_and_content(self):
-        from app.platforms.xhs.browser_writes import comment_xhs_browser
+        from application.xhs.browser_writes import comment_xhs_browser
 
         class MissingEditorPage(_CommentPage):
             def locator(self, selector):

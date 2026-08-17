@@ -6,14 +6,20 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-import app.db as db
+import moss.common.db as db
 import app.main as main
-from app.browser.identity import Identity
-from app.browser.manager import BrowserManager
-from app.config import Config, load_config
-from app.models import DouyinAccount
-from app.profiles import ensure_identity
-from app.risk import OperationKind
+from app.api import accounts as accounts_r
+from app.api import login as login_r
+from app.service import account_profile as profile_svc
+from app.service import browser_windows as windows_svc
+
+from moss.core.runtime import rt
+from application.browser.identity import Identity
+from application.browser.manager import BrowserManager
+from moss.core.config import Config, load_config
+from moss.model import DouyinAccount
+from app.service.profiles import ensure_identity
+from moss.core.risk import OperationKind
 
 
 class _ContextStub:
@@ -99,13 +105,13 @@ class IdentityModeTests(unittest.TestCase):
         self.assertEqual(cfg.engine.xhs_browser_mode, "patchright")
 
     def test_open_browser_url_requires_the_real_platform_host(self):
-        self.assertTrue(main._platform_url_allowed(
+        self.assertTrue(accounts_r._platform_url_allowed(
             "xhs", "https://www.xiaohongshu.com/explore/fixture"))
-        self.assertTrue(main._platform_url_allowed(
+        self.assertTrue(accounts_r._platform_url_allowed(
             "xhs", "https://creator.xiaohongshu.com/publish"))
-        self.assertFalse(main._platform_url_allowed(
+        self.assertFalse(accounts_r._platform_url_allowed(
             "xhs", "https://evil.example/?next=xiaohongshu.com"))
-        self.assertFalse(main._platform_url_allowed(
+        self.assertFalse(accounts_r._platform_url_allowed(
             "xhs", "https://xiaohongshu.com.evil.example/"))
 
     def test_identity_from_account_remembers_platform(self):
@@ -153,7 +159,7 @@ class IdentityModeTests(unittest.TestCase):
         previous_cfg = main.cfg
         main.cfg = self.cfg
         try:
-            result = asyncio.run(main.login_cookie(main.CookieIn(
+            result = asyncio.run(login_r.login_cookie(login_r.CookieIn(
                 platform="douyin", nickname="fixture", cookie="sid=fixture")))
         finally:
             main.cfg = previous_cfg
@@ -165,7 +171,7 @@ class IdentityModeTests(unittest.TestCase):
 
     def test_scan_login_runs_through_unified_login_operation_guard(self):
         previous_cfg, previous_browser, previous_engine = (
-            main.cfg, main.browser, main.engine)
+            main.cfg, rt.browser, rt.engine)
 
         class BrowserStub:
             def environment_snapshot(self, identity, *, headless):
@@ -202,14 +208,14 @@ class IdentityModeTests(unittest.TestCase):
             return False, "", ""
 
         main.cfg = self.cfg
-        main.browser = BrowserStub()
-        main.engine = engine
+        rt.browser = BrowserStub()
+        rt.engine = engine
         try:
-            with patch("app.main.interactive_login", expired_login):
-                asyncio.run(main._run_login(
+            with patch("app.api.login.interactive_login", expired_login):
+                asyncio.run(login_r._run_login(
                     "fixture-login", platform="douyin", proxy_choice="none"))
         finally:
-            main.cfg, main.browser, main.engine = (
+            main.cfg, rt.browser, rt.engine = (
                 previous_cfg, previous_browser, previous_engine)
 
         self.assertEqual(len(engine.calls), 1)
@@ -217,7 +223,7 @@ class IdentityModeTests(unittest.TestCase):
 
     def test_scan_login_task_reports_non_sensitive_browser_environment(self):
         previous_cfg, previous_browser, previous_engine = (
-            main.cfg, main.browser, main.engine)
+            main.cfg, rt.browser, rt.engine)
 
         class BrowserStub:
             def environment_snapshot(self, identity, *, headless):
@@ -238,20 +244,20 @@ class IdentityModeTests(unittest.TestCase):
 
         task_id = "environment-diagnostic"
         main.cfg = self.cfg
-        main.browser = BrowserStub()
-        main.engine = None
+        rt.browser = BrowserStub()
+        rt.engine = None
         try:
-            with patch("app.main.interactive_xhs_login", expired_login):
-                asyncio.run(main._run_login(
+            with patch("app.api.login.interactive_xhs_login", expired_login):
+                asyncio.run(login_r._run_login(
                     task_id,
                     platform="xhs",
                     proxy_choice="http://user:secret@127.0.0.1:8080",
                 ))
 
-            result = main.login_tasks[task_id]
+            result = rt.login_tasks[task_id]
         finally:
-            main.login_tasks.pop(task_id, None)
-            main.cfg, main.browser, main.engine = (
+            rt.login_tasks.pop(task_id, None)
+            main.cfg, rt.browser, rt.engine = (
                 previous_cfg, previous_browser, previous_engine)
 
         self.assertEqual(result["status"], "expired")
@@ -261,7 +267,7 @@ class IdentityModeTests(unittest.TestCase):
 
     def test_successful_new_xhs_login_releases_temporary_session(self):
         previous_cfg, previous_browser, previous_engine = (
-            main.cfg, main.browser, main.engine)
+            main.cfg, rt.browser, rt.engine)
 
         class BrowserStub:
             def __init__(self):
@@ -286,18 +292,18 @@ class IdentityModeTests(unittest.TestCase):
 
         task_id = "successful-xhs-login"
         main.cfg = self.cfg
-        main.browser = browser
-        main.engine = None
+        rt.browser = browser
+        rt.engine = None
         try:
-            with patch("app.main.interactive_xhs_login", logged_in), \
-                    patch("app.main._enrich_account_profile",
+            with patch("app.api.login.interactive_xhs_login", logged_in), \
+                    patch("app.service.account_profile._enrich_account_profile",
                           AsyncMock(return_value="ok")):
-                asyncio.run(main._run_login(
+                asyncio.run(login_r._run_login(
                     task_id, platform="xhs", proxy_choice="none"))
-            result = main.login_tasks[task_id]
+            result = rt.login_tasks[task_id]
         finally:
-            main.login_tasks.pop(task_id, None)
-            main.cfg, main.browser, main.engine = (
+            rt.login_tasks.pop(task_id, None)
+            main.cfg, rt.browser, rt.engine = (
                 previous_cfg, previous_browser, previous_engine)
 
         self.assertEqual(result["status"], "confirmed")
@@ -313,7 +319,7 @@ class IdentityModeTests(unittest.TestCase):
             session.commit()
             session.refresh(account)
             account_id = account.id
-        previous_browser, previous_engine = main.browser, main.engine
+        previous_browser, previous_engine = rt.browser, rt.engine
 
         class EngineStub:
             def __init__(self):
@@ -359,19 +365,19 @@ class IdentityModeTests(unittest.TestCase):
 
         self_outer = self
         async def scenario():
-            result = await main.open_account_browser(account_id)
+            result = await accounts_r.open_account_browser(account_id)
             self.assertTrue(engine.inside)
-            await main.open_browsers[account_id].close()
+            await rt.open_browsers[account_id].close()
             self.assertFalse(engine.inside)
             return result
 
-        main.browser = BrowserStub()
-        main.engine = engine
+        rt.browser = BrowserStub()
+        rt.engine = engine
         try:
             result = asyncio.run(scenario())
         finally:
-            main.open_browsers.pop(account_id, None)
-            main.browser, main.engine = previous_browser, previous_engine
+            rt.open_browsers.pop(account_id, None)
+            rt.browser, rt.engine = previous_browser, previous_engine
 
         self.assertTrue(result["ok"])
         self.assertEqual(engine.calls[0][1], OperationKind.LOGIN)
@@ -386,7 +392,7 @@ class IdentityModeTests(unittest.TestCase):
             session.commit()
             session.refresh(account)
             account_id = account.id
-        previous_browser, previous_engine = main.browser, main.engine
+        previous_browser, previous_engine = rt.browser, rt.engine
 
         state = {"engine": False, "visible": False}
 
@@ -454,21 +460,21 @@ class IdentityModeTests(unittest.TestCase):
         browser = BrowserStub()
 
         async def scenario():
-            result = await main.open_account_browser(account_id)
+            result = await accounts_r.open_account_browser(account_id)
             self.assertTrue(result["ok"])
             self.assertTrue(state["engine"])
             self.assertTrue(state["visible"])
-            await main.open_browsers[account_id].close()
+            await rt.open_browsers[account_id].close()
             self.assertFalse(state["engine"])
             self.assertFalse(state["visible"])
 
-        main.browser = browser
-        main.engine = EngineStub()
+        rt.browser = browser
+        rt.engine = EngineStub()
         try:
             asyncio.run(scenario())
         finally:
-            main.open_browsers.pop(account_id, None)
-            main.browser, main.engine = previous_browser, previous_engine
+            rt.open_browsers.pop(account_id, None)
+            rt.browser, rt.engine = previous_browser, previous_engine
 
         self.assertEqual(browser.closed_keys, [account_id])
         self.assertFalse(context.closed_directly)
@@ -483,7 +489,7 @@ class IdentityModeTests(unittest.TestCase):
             session.commit()
             session.refresh(account)
             account_id = account.id
-        previous_browser, previous_engine = main.browser, main.engine
+        previous_browser, previous_engine = rt.browser, rt.engine
 
         class EngineStub:
             def __init__(self):
@@ -512,16 +518,16 @@ class IdentityModeTests(unittest.TestCase):
 
         async def scenario():
             with self.assertRaises(asyncio.CancelledError):
-                await main.open_account_browser(account_id)
+                await accounts_r.open_account_browser(account_id)
             self.assertFalse(engine.inside)
 
-        main.browser = BrowserStub()
-        main.engine = engine
+        rt.browser = BrowserStub()
+        rt.engine = engine
         try:
             asyncio.run(scenario())
         finally:
-            main.open_browsers.pop(account_id, None)
-            main.browser, main.engine = previous_browser, previous_engine
+            rt.open_browsers.pop(account_id, None)
+            rt.browser, rt.engine = previous_browser, previous_engine
 
     def test_native_launch_omits_spoofing_options_and_hooks(self):
         manager = BrowserManager("DEFAULT_UA", self.cfg.engine.profiles_dir)
@@ -676,7 +682,7 @@ class IdentityModeTests(unittest.TestCase):
             session.refresh(account)
             account_id = account.id
 
-        previous_browser = main.browser
+        previous_browser = rt.browser
         manager = BrowserManager(
             "UA", self.cfg.engine.profiles_dir, xhs_browser_mode="auto")
         with db.get_session() as session:
@@ -686,11 +692,11 @@ class IdentityModeTests(unittest.TestCase):
         manager._fallback_reason_by_key[identity.key] = (
             "connect ws://127.0.0.1:43111/devtools/browser/fixture "
             "via http://alice:secret@proxy.local:8080")
-        main.browser = manager
+        rt.browser = manager
         try:
-            body = asyncio.run(main.account_browser_environment(account_id))
+            body = asyncio.run(accounts_r.account_browser_environment(account_id))
         finally:
-            main.browser = previous_browser
+            rt.browser = previous_browser
 
         dumped = repr(body)
         self.assertEqual(body["backend_label"], "Patchright Chromium · 回退")
@@ -727,7 +733,7 @@ class IdentityModeTests(unittest.TestCase):
                 account, self.cfg.engine.profiles_dir, "DEFAULT_UA")
         manager = BrowserManager(
             "DEFAULT_UA", self.cfg.engine.profiles_dir,
-            native_ua_callback=main._persist_native_ua,
+            native_ua_callback=windows_svc._persist_native_ua,
         )
         manager._pw = _PatchrightStub()
         manager._pw.chromium.context.pages = [_PageStub()]

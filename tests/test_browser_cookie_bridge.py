@@ -2,9 +2,9 @@ import json
 import time
 import unittest
 
-from app.browser.manager import _bridge_cookies
-from app.browser.identity import Identity
-from app.browser.manager import BrowserManager
+from application.browser.manager import _bridge_cookies
+from application.browser.identity import Identity
+from application.browser.manager import BrowserManager
 
 
 def _state(*cookies):

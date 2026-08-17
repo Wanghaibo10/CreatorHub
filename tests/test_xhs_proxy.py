@@ -1,7 +1,7 @@
 import asyncio
 import unittest
 
-from app.browser.proxy import ProxyConfigError, ProxyPlan, Socks5AuthRelay
+from moss.common.proxy_plan import ProxyConfigError, ProxyPlan, Socks5AuthRelay
 
 
 class ProxyPlanTests(unittest.TestCase):

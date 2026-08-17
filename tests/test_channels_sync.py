@@ -1,14 +1,8 @@
 import unittest
 
-from app.browser.account_hub import _norm_channels_work
-from app.browser.channels_fetcher import (
-    POST_IMAGE_LIST_URL,
-    POST_LIST_URLS,
-    POST_VIDEO_LIST_URL,
-    _dig_posts,
-    _obj_id,
-)
-from app.platforms.channels.extract import parse_channels_feed
+from application.browser.account_hub import _norm_channels_work
+from application.browser.channels_fetcher import (POST_IMAGE_LIST_URL, POST_LIST_URLS, POST_VIDEO_LIST_URL, _dig_posts, _obj_id)
+from application.channels.extract import parse_channels_feed
 
 
 def _photo_item():

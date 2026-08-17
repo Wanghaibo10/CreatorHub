@@ -5,14 +5,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import app.db as db
-from app.main import (
-    _load_meta_tags,
-    _meta_tags,
-    all_contents,
-    list_comments,
-)
-from app.models import CommentRecord, CommentWatch, ContentRecord, MonitorTarget
+import moss.common.db as db
+from app.api.contents import all_contents
+from app.api.watches import list_comments
+from app.service.monitor_meta import _load_meta_tags, _meta_tags
+from moss.model import CommentRecord, CommentWatch, ContentRecord, MonitorTarget
 
 
 class MonitorMetadataTests(unittest.TestCase):

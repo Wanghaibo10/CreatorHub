@@ -2,10 +2,13 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 import app.main as main
-from app.browser.login import (
-    _channels_auth_response_ok,
-    _channels_login_ready,
-)
+from app.api import accounts as accounts_r
+from app.api import login as login_r
+from app.service import account_profile as profile_svc
+from app.service import browser_windows as windows_svc
+
+from moss.core.runtime import rt
+from application.browser.login import _channels_auth_response_ok, _channels_login_ready
 
 
 class ChannelsLoginSignalTests(unittest.TestCase):
@@ -54,11 +57,11 @@ class ChannelsProfileRetryTests(unittest.IsolatedAsyncioTestCase):
             ({"nickname": "视频号账号"}, ""),
         ])
         with (
-            patch.object(main, "browser", object()),
-            patch.object(main, "fetch_channels_self_profile", fetch),
-            patch.object(main.asyncio, "sleep", AsyncMock()) as sleep,
+            patch.object(rt, "browser", object()),
+            patch.object(profile_svc, "fetch_channels_self_profile", fetch),
+            patch.object(profile_svc.asyncio, "sleep", AsyncMock()) as sleep,
         ):
-            profile, error = await main._fetch_channels_profile_with_retry(object())
+            profile, error = await profile_svc._fetch_channels_profile_with_retry(object())
 
         self.assertEqual(profile["nickname"], "视频号账号")
         self.assertEqual(error, "")
@@ -68,10 +71,10 @@ class ChannelsProfileRetryTests(unittest.IsolatedAsyncioTestCase):
     async def test_non_login_error_is_not_retried(self):
         fetch = AsyncMock(return_value=({}, "no_profile_data"))
         with (
-            patch.object(main, "browser", object()),
-            patch.object(main, "fetch_channels_self_profile", fetch),
+            patch.object(rt, "browser", object()),
+            patch.object(profile_svc, "fetch_channels_self_profile", fetch),
         ):
-            profile, error = await main._fetch_channels_profile_with_retry(object())
+            profile, error = await profile_svc._fetch_channels_profile_with_retry(object())
 
         self.assertEqual(profile, {})
         self.assertEqual(error, "no_profile_data")

@@ -2,8 +2,8 @@ import asyncio
 import unittest
 from contextlib import asynccontextmanager
 
-from app.browser.identity import Identity
-from app.browser.xhs_fetcher import FEED_API, fetch_xhs_note_detail
+from application.browser.identity import Identity
+from application.browser.xhs_fetcher import FEED_API, fetch_xhs_note_detail
 
 
 class _Response:

@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "app" / "web"
+SOURCE = ROOT / "app" / "static"
 PREVIEW = ROOT / "preview"
 
 
@@ -22,7 +22,7 @@ def build(destination: Path) -> None:
     marker = '<script src="/static/app.js"></script>'
     replacement = '<script src="./demo-api.js"></script>\n<script src="./app.js"></script>'
     if marker not in html:
-        raise RuntimeError("app script marker not found in app/web/index.html")
+        raise RuntimeError("app script marker not found in app/static/index.html")
     (destination / "index.html").write_text(html.replace(marker, replacement), encoding="utf-8")
     shutil.copy2(SOURCE / "app.js", destination / "app.js")
     shutil.copy2(PREVIEW / "demo-api.js", destination / "demo-api.js")
