@@ -315,21 +315,21 @@ class WeiboTests(unittest.TestCase):
         return WeiboSession(cookie)
 
     def test_check_login_ok_with_days_left(self):
+        # 实测标定:带有效 Cookie 打 profile/info(无参)回「缺少必要参数」
+        # ——能走到参数校验即已过登录闸
         import time
         alf = int(time.time()) + 30 * 86400
         api = self._session(f"SUB=x; ALF={alf}")
-        api.get = AsyncMock(side_effect=[
-            _FakeResp({"data": {"login": True, "uid": "5551112223"}}),
-            _FakeResp({"data": {"user": {"screen_name": "乌云"}}}),
-        ])
+        api.get = AsyncMock(return_value=_FakeResp(
+            {"ok": 0, "message": "缺少必要参数"}))
         info = run(api.check_login())
-        self.assertEqual(info["uid"], "5551112223")
-        self.assertEqual(info["nickname"], "乌云")
         self.assertAlmostEqual(info["days_left"], 30.0, delta=0.2)
 
     def test_logged_out_raises_auth(self):
+        # 未登录一律 {"ok":-100, 跳 login.php}
         api = self._session()
-        api.get = AsyncMock(return_value=_FakeResp({"data": {"login": False}}))
+        api.get = AsyncMock(return_value=_FakeResp(
+            {"ok": -100, "url": "https://weibo.com/login.php?url=x"}))
         with self.assertRaises(AuthExpired):
             run(api.check_login())
 

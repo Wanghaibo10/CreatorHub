@@ -30,22 +30,17 @@ class WeiboSession(ArticlePlatformSession):
         return round((int(alf) - time.time()) / 86400, 1)
 
     async def check_login(self) -> dict:
-        """有效返回 {uid, nickname, days_left};失效抛 AuthExpired。"""
-        r = await self.get(WB + "/ajax/config", headers=self._headers())
-        d = (await self.json_or_raise(r, "config")).get("data") or {}
-        if not d.get("login"):
+        """有效返回 {nickname, days_left};失效抛 AuthExpired。
+
+        2026-08-17 实测标定:web 版 ajax 接口未登录一律回 {"ok":-100,跳
+        login.php};带有效 Cookie 打 /ajax/profile/info(不带参)回 400
+        「缺少必要参数」——**能走到参数校验就说明已过登录闸**。别用
+        /ajax/config,那个路径 404。昵称暂无实证接口可取,留空。"""
+        r = await self.get(WB + "/ajax/profile/info", headers=self._headers())
+        d = await self.json_or_raise(r, "profile/info")
+        if d.get("ok") == -100:
             raise AuthExpired("微博登录态已失效,请重新登录")
-        uid = str(d.get("uid") or "")
-        nickname = ""
-        try:
-            pr = await self.get(WB + f"/ajax/profile/info?uid={uid}",
-                                headers=self._headers())
-            user = ((await self.json_or_raise(pr, "profile")).get("data")
-                    or {}).get("user") or {}
-            nickname = user.get("screen_name") or ""
-        except Exception:
-            pass                     # 昵称拿不到不算失败,uid 已证明登录态有效
-        out = {"uid": uid, "nickname": nickname}
+        out = {"nickname": ""}
         days = self.cookie_days_left()
         if days is not None:
             out["days_left"] = days
