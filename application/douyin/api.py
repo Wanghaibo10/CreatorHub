@@ -49,6 +49,7 @@ from curl_cffi.requests import AsyncSession
 
 from application.douyin.signing import gen_false_ms_token, sign_url
 from application.douyin.signing import ticket_guard
+from application.douyin import verify as _verify
 from moss.common.netfp import impersonate_for_ua
 
 CREATOR = "https://creator.douyin.com"
@@ -487,6 +488,44 @@ class DouyinAPI:
             raise DouyinAPIError(
                 f"{method} {path} 非 JSON HTTP {r.status_code}:"
                 f"{(r.text or '')[:200]}") from exc
+
+    async def _passport_form(self, path: str, form: dict[str, str]) -> dict[str, Any]:
+        """passport 域的 form POST。**不带 ticket-guard 签名**(2026-08-18 抓包
+        实证:send_code/validate_code 都只要 csrf)——别照抄 create_v2 那套头。"""
+        h = self._creator_headers(content_type="application/x-www-form-urlencoded")
+        url = f"{CREATOR}{path}?" + urllib.parse.urlencode(
+            {**_verify.QUERY, "msToken": gen_false_ms_token()})
+        r = await self.cli.request(
+            "POST", url, headers=h,
+            data=urllib.parse.urlencode(form).encode())
+        self._ingest_csrf(r)
+        if not r.content:
+            raise DouyinAPIError(f"{path} HTTP {r.status_code} 空 body")
+        d = r.json()
+        if str(d.get("message") or "") not in ("success", ""):
+            raise DouyinAPIError(f"{path} 失败:{d}")
+        return d.get("data") or {}
+
+    async def send_verify_code(self, encrypt_uid: str, *,
+                               scene: str = "creator") -> dict[str, Any]:
+        """给账号绑定手机发 6 位验证码。→ {mobile, retry_time}。
+
+        `encrypt_uid` 从写请求的 `x-tt-verify-passport-decision` 头里取
+        (`verify.decision_from_headers`),不必另调 query_decision。
+        """
+        return await self._passport_form(
+            _verify.SEND_PATH, _verify.code_form(encrypt_uid, scene=scene))
+
+    async def validate_verify_code(self, encrypt_uid: str, code: str, *,
+                                   scene: str = "creator") -> str:
+        """提交验证码 → ticket。之后**重发原来那个写请求**即可成功。
+
+        ⚠️ code 传人读到的 6 位数字即可,内部按 hex 编码(抓包实证)。
+        """
+        d = await self._passport_form(
+            _verify.VALIDATE_PATH,
+            _verify.code_form(encrypt_uid, scene=scene, code=code))
+        return str(d.get("ticket") or "")
 
     async def ping(self) -> dict[str, Any]:
         """登录是否还活着。给 doctor / CLI 用。"""
