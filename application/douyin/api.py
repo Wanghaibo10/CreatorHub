@@ -79,6 +79,19 @@ class DouyinAPIError(RuntimeError):
     pass
 
 
+class NeedVerify(DouyinAPIError):
+    """写请求被要求本人身份验证(短信)。**不是协议错误,别去改签名。**
+
+    `decision` 里带着 `encrypt_uid` —— 走 `send_verify_code` /
+    `validate_verify_code` 要用它。单独立一个异常类型是因为上层的处置
+    完全不同:别的错误该重试或报警,这个该去要验证码然后**重发原请求**。
+    """
+
+    def __init__(self, msg: str, decision: Optional[Dict[str, Any]] = None):
+        super().__init__(msg)
+        self.decision = decision or {}
+
+
 def cookies_from_account(acc) -> Dict[str, str]:
     """从 `storage_state` 抽抖音域 cookie,不启动浏览器。"""
     raw = getattr(acc, "storage_state", "") or getattr(acc, "creator_storage_state", "") or ""
@@ -475,10 +488,11 @@ class DouyinAPI:
         self._ingest_csrf(r)
         if not r.content:
             if verify_required(r.headers):
-                raise DouyinAPIError(
+                raise NeedVerify(
                     f"need_verify:{path} 要求本人身份验证 —— 抖音风控要求这个"
                     "账号先过一次短信验证码(创作者中心手动发一条即可,"
-                    "或走 passport/web/send_code → validate_code),之后重发")
+                    "或走 passport/web/send_code → validate_code),之后重发",
+                    _verify.decision_from_headers(r.headers))
             raise DouyinAPIError(
                 f"{method} {path} HTTP {r.status_code} 空 body"
                 + (" —— 多半是 csrf/形态被拒" if r.status_code == 403 else ""))
