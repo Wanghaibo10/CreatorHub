@@ -19,10 +19,16 @@
          body:  {item:{common,cover,mix,...}}    ✅ 200 + item_id
          旧路径 /aweme/create/ multipart 已弃,JSON 打它会 403。
 
-2026-08-17 22:17 半世清言公开条是**浏览器点的**,但 create_v2 请求/
-回执整份落在 dy_publish_net_20260817_221739.json:item_id=7675004536871783722,
-visibility_type=0。本模块按那份真源组包。纯协议整条(上传+create_v2)
-还没单独再实发过,引擎主路径协议优先、失败回落浏览器。
+2026-08-17 半世清言:浏览器公开条 + 纯协议私密条(item=7675011062814477583)都进过库。
+2026-08-18 换号 create_v2 403 空 body,两处客户端洞:
+  1) query 曾手写 browser_name=Chrome/131,抓包是 Mozilla + UA 去 Mozilla/ 前缀
+  2) 用 passport_csrf_token 冒充 x-secsdk-csrf-token,且不做路径预检
+现按抓包对齐指纹;POST 前 HEAD/GET 目标路径收 x-ware-csrf-token。
+2026-08-18 二轮,又两处「自己跟自己打架」(httpbin 回显实测出来的):
+  3) 库里 acc.ua 是 patchright 原始串,写着 HeadlessChrome —— 它同时进
+     User-Agent 头与风控 query 的 browser_version。见 normalize_ua()
+  4) curl_cffi impersonate 默认头是导航形(navigate/document/none/UIR=1),
+     带 Origin 的 POST 配这套 = 跨站表单指纹。见 _creator_headers()
 """
 from __future__ import annotations
 
@@ -30,6 +36,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+import re
 import time
 import urllib.parse
 import uuid
@@ -41,6 +48,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 from curl_cffi.requests import AsyncSession
 
 from application.douyin.signing import gen_false_ms_token, sign_url
+from application.douyin.signing import ticket_guard
 from moss.common.netfp import impersonate_for_ua
 
 CREATOR = "https://creator.douyin.com"
@@ -94,8 +102,88 @@ def cookies_from_state(storage_state_json: str) -> Dict[str, str]:
     return out
 
 
+def verify_required(headers: Any) -> bool:
+    """响应是不是「要求本人身份验证」。
+
+    形态:`HTTP 200` + **空 body** + `x-tt-verify-passport-decision`
+    (内含 `account_flow: verify`)。2026-08-18 实证:真实浏览器首次发布也是
+    这个响应,人过一次短信验证码后重发即成功 —— 所以它**不是协议错误**。
+    单独识别出来,是为了别让上层看到「HTTP 200 空 body」就去改签名改指纹。
+    """
+    for k, v in (headers or {}).items():
+        if k.lower() == "x-tt-verify-passport-decision" and v:
+            return True
+    return False
+
+
 def _cookie_header(ck: Dict[str, str]) -> str:
     return "; ".join(f"{k}={v}" for k, v in ck.items())
+
+
+def browser_query(ua: str, *, screen: tuple[int, int] = (1536, 864)
+                  ) -> dict[str, str]:
+    """创作域公共 query,对齐 2026-08-17 create_v2 抓包。
+
+    浏览器发的是 navigator.appName / appVersion:
+    browser_name=Mozilla, browser_version=<UA 去掉前缀 Mozilla/>。
+    不是 Chrome/131.0.0.0。
+    """
+    ua = (ua or DEFAULT_UA).strip()
+    version = ua[len("Mozilla/"):] if ua.startswith("Mozilla/") else ua
+    if "Mac" in ua:
+        plat = "MacIntel"
+    elif "Windows" in ua or "Win64" in ua or "Win32" in ua:
+        plat = "Win32"
+    else:
+        plat = "Linux x86_64"
+    w, h = screen
+    return {
+        "cookie_enabled": "true",
+        "screen_width": str(int(w)),
+        "screen_height": str(int(h)),
+        "browser_language": "zh-CN",
+        "browser_platform": plat,
+        "browser_name": "Mozilla",
+        "browser_version": version,
+        "browser_online": "true",
+        "timezone_name": "Asia/Shanghai",
+        "support_h265": "1",
+    }
+
+
+def normalize_ua(ua: str) -> str:
+    """洗掉 UA 里的自动化痕迹,并把 Chrome 大版本对齐到 impersonate 目标。
+
+    ⚠️ 两个洞,都是「自己跟自己打架」:
+
+    1. `douyinaccount.ua` 存的是 patchright 启动时的**原始** UA,里面写着
+       `HeadlessChrome/151.0.0.0`。`publish_cli.py` 直接 `acc.ua` 往下传,
+       于是这串同时进 `User-Agent` 头**和** `browser_query()` 的
+       `browser_version`(风控 query)—— 等于自报两次「我是无头浏览器」。
+       2026-08-17 22:17 浏览器实发成功那条抓包里是 `Chrome/151.0.0.0`,
+       没有 Headless(页面层被 patchright 洗过了),库里那份没洗。
+    2. curl_cffi 只有有限几个 impersonate 目标,UA 写 Chrome/151 时它挑
+       chrome146,`Sec-Ch-Ua` 就自报 v="146" —— 真 Chrome 的 UA 与
+       Client Hints 永远一致,对不上就是个可判据的破绽。这里把 UA 的大版本
+       改成 impersonate 目标的版本,让 UA / Sec-Ch-Ua / TLS 三者自洽。
+    """
+    ua = (ua or DEFAULT_UA).strip()
+    ua = ua.replace("HeadlessChrome/", "Chrome/")
+    m = re.search(r"chrome(\d+)", impersonate_for_ua(ua))
+    if m:
+        ua = re.sub(r"Chrome/\d+", "Chrome/" + m.group(1), ua)
+    return ua
+
+
+def parse_ware_csrf(header: str) -> str:
+    """`x-ware-csrf-token: 0,<token>,<sign>` → 给 `x-secsdk-csrf-token` 的 token。
+
+    不要拿 cookie 里的 passport_csrf_token 冒充,那是另一套。
+    """
+    parts = [p.strip() for p in (header or "").split(",") if p.strip()]
+    if len(parts) >= 2:
+        return parts[1]
+    return ""
 
 
 def new_creation_id(now_ms: Optional[int] = None) -> str:
@@ -249,13 +337,20 @@ class DouyinAPI:
     """一个账号一个实例。cookies 来自 `cookies_from_account`。"""
 
     def __init__(self, cookies: Dict[str, str], ua: str = DEFAULT_UA,
-                 proxy: Optional[str] = None):
+                 proxy: Optional[str] = None, *,
+                 storage_state: Any = None):
         self.ck = cookies
-        self.ua = ua or DEFAULT_UA
+        #: 库里的 ua 可能是 HeadlessChrome,必须洗;洗完再挑 impersonate。
+        self.ua = normalize_ua(ua)
+        #: 写操作要的 ticket-guard 材料。就在 creator_storage_state 的
+        #: origins[creator.douyin.com].localStorage 里,登录时已随手存下。
+        self._tg_store = ticket_guard.store_from_state(storage_state) \
+            if storage_state else {}
         self.proxy = (proxy or "").strip() or None
         self.impersonate = impersonate_for_ua(self.ua)
         self._cli: Optional[AsyncSession] = None
-        self._csrf = cookies.get("passport_csrf_token", "")
+        #: 只收 x-ware-csrf-token 解出来的值,不用 passport_csrf_token。
+        self._csrf = ""
         self._uid = ""
 
     async def __aenter__(self):
@@ -274,63 +369,115 @@ class DouyinAPI:
             raise DouyinAPIError("请用 `async with DouyinAPI(...) as api:`")
         return self._cli
 
-    def _creator_headers(self, *, content_type: str = "") -> dict[str, str]:
-        h = {
+    def _creator_headers(self, *, content_type: str = "",
+                         sign_path: str = "") -> dict[str, Any]:
+        """创作域请求头。**必须是 XHR 形,不能是导航形。**
+
+        curl_cffi 的 impersonate profile 自带一套「顶层导航」默认头:
+        `Sec-Fetch-Dest: document` / `Mode: navigate` / `Site: none` /
+        `Sec-Fetch-User: ?1` / `Upgrade-Insecure-Requests: 1`。
+        不覆盖就原样出网 —— 一个带 `Origin:` 的 POST 配这套,正好是
+        **跨站表单提交**的指纹,而那恰恰是 CSRF 防护要拦的东西。
+        抓包里 create_v2 的 `resource` 字段是 `xhr`。
+        (2026-08-18 httpbin 回显实证;`Accept-Language` 默认还是 en-US,
+        与 query 里的 `browser_language=zh-CN` 自相矛盾,一并改掉。)
+        值给 `None` = 让 curl_cffi 删掉那个默认头(0.16.0 实证有效)。
+        """
+        h: dict[str, Any] = {
             "User-Agent": self.ua,
             "Referer": CREATOR + "/creator-micro/content/upload",
             "Origin": CREATOR,
             "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "zh-CN,zh;q=0.9",
             "Cookie": _cookie_header(self.ck),
+            "Sec-Fetch-Site": "same-origin",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-User": None,
+            "Upgrade-Insecure-Requests": None,
+            "Priority": "u=1, i",
         }
         if self._csrf:
             h["x-secsdk-csrf-token"] = self._csrf
-        ticket = self.ck.get("bd_ticket_guard_client_data", "")
-        if ticket:
-            h["bd-ticket-guard-client-data"] = ticket
-            h["bd-ticket-guard-web-domain"] = (
-                self.ck.get("bd_ticket_guard_web_domain") or "2")
+        # ⚠️ **不要**从 cookie 里抄 `bd_ticket_guard_client_data` 当请求头发。
+        # 2026-08-18 CDP 抓真实浏览器(Chrome/142,活登录态)23 条 creator 域
+        # XHR/fetch(含 4 条 POST):`bd-ticket-guard-*` 一条都没带 —— 它们只
+        # 是 Cookie。真 ticket guard 是每请求用浏览器私钥重签的,抄一个静态值
+        # 出来当头,等于**多发一个浏览器不会发的头**,比少发更可疑。
         if content_type:
             h["Content-Type"] = content_type
+        if sign_path:
+            # 写操作的准入凭证。缺材料**必须抛**,不能退化成不带签名发出去 ——
+            # 2026-08-18 实测那样会 403 并当场烧掉整个账号会话。
+            h.update(ticket_guard.headers_from_store(self._tg_store, sign_path))
         return h
 
     def _signed_url(self, path: str, extra: Optional[dict] = None,
                     body: str = "") -> str:
-        q = {
-            "aid": CREATOR_AID,
-            "device_platform": "web",
-            "cookie_enabled": "true",
-            "browser_language": "zh-CN",
-            "browser_platform": "MacIntel",
-            "browser_name": "Chrome",
-            "browser_version": "131.0.0.0",
-            "browser_online": "true",
-            "timezone_name": "Asia/Shanghai",
-            "msToken": gen_false_ms_token(),
-        }
+        q = {"aid": CREATOR_AID, **browser_query(self.ua),
+             "msToken": gen_false_ms_token()}
         if extra:
             q.update({k: v for k, v in extra.items() if v is not None})
         signed = sign_url(urllib.parse.urlencode(q), self.ua, body)
         return f"{CREATOR}{path}?{signed}"
 
+    def _ingest_csrf(self, resp) -> None:
+        ware = ""
+        try:
+            ware = (resp.headers or {}).get("x-ware-csrf-token") or \
+                   (resp.headers or {}).get("X-Ware-Csrf-Token") or ""
+        except Exception:
+            ware = ""
+        token = parse_ware_csrf(ware)
+        if token:
+            self._csrf = token
+
+    async def _ensure_csrf(self, path: str) -> None:
+        """secsdk 路径预检。必须 HEAD + `X-Secsdk-Csrf-Request: 1` 才会下发
+        `x-ware-csrf-token`。2026-08-18 小雪 id=13 实证:不带这头,HEAD/GET
+        全部没 token;带了之后 HEAD create_v2 回 `0,<token>`。
+        GET 同一路径不带 token,别拿 GET 当预检。
+        """
+        self._csrf = ""
+        headers = self._creator_headers()
+        headers.pop("x-secsdk-csrf-token", None)
+        headers["x-secsdk-csrf-request"] = "1"
+        url = self._signed_url(path)
+        try:
+            r = await self.cli.request("HEAD", url, headers=headers)
+        except Exception as exc:                                 # noqa: BLE001
+            raise DouyinAPIError(f"secsdk csrf HEAD 失败:{path} {exc!r}") from exc
+        self._ingest_csrf(r)
+        if self._csrf:
+            return
+        raise DouyinAPIError(
+            f"secsdk csrf 预检失败:{path} HEAD 没有 x-ware-csrf-token,"
+            f"http={getattr(r, 'status_code', '?')},未发 POST")
+
     async def _creator_json(self, method: str, path: str, *,
                             extra: Optional[dict] = None,
                             content: bytes | None = None,
                             content_type: str = "") -> dict[str, Any]:
+        if method.upper() in {"POST", "PUT", "PATCH", "DELETE"}:
+            await self._ensure_csrf(path)
         sign_body = ""
         if content:
             sign_body = content.decode("utf-8", errors="ignore") \
                 if isinstance(content, (bytes, bytearray)) else str(content)
         url = self._signed_url(path, extra, body=sign_body)
+        write = method.upper() != "GET"
         r = await self.cli.request(
-            method, url, headers=self._creator_headers(content_type=content_type),
+            method, url,
+            headers=self._creator_headers(content_type=content_type,
+                                          sign_path=path if write else ""),
             data=content)
-        ware = r.headers.get("x-ware-csrf-token") or r.headers.get("X-Ware-Csrf-Token")
-        if ware:
-            # 形如 0,<token>,<sign>
-            parts = [p.strip() for p in ware.split(",")]
-            if len(parts) >= 2 and parts[1]:
-                self._csrf = parts[1]
+        self._ingest_csrf(r)
         if not r.content:
+            if verify_required(r.headers):
+                raise DouyinAPIError(
+                    f"need_verify:{path} 要求本人身份验证 —— 抖音风控要求这个"
+                    "账号先过一次短信验证码(创作者中心手动发一条即可,"
+                    "或走 passport/web/send_code → validate_code),之后重发")
             raise DouyinAPIError(
                 f"{method} {path} HTTP {r.status_code} 空 body"
                 + (" —— 多半是 csrf/形态被拒" if r.status_code == 403 else ""))
@@ -541,7 +688,8 @@ async def publish_via_http(storage_state_json: str, video: str, title: str,
     tags = [t.strip().lstrip("#") for t in (topics or "").split(",") if t.strip()]
     body = ((desc or "") + ("\n" + " ".join(f"#{t}" for t in tags) if tags else "")).strip()
     try:
-        async with DouyinAPI(ck, ua or DEFAULT_UA, proxy) as api:
+        async with DouyinAPI(ck, ua or DEFAULT_UA, proxy,
+                             storage_state=storage_state_json) as api:
             res = await api.publish_video(
                 video, title, body, visibility=visibility,
                 allow_save=allow_save, on_step=on_step)
@@ -565,6 +713,9 @@ async def publish_via_http(storage_state_json: str, video: str, title: str,
 __all__ = [
     "AID", "CREATOR", "CREATOR_AID", "DEFAULT_UA", "DouyinAPI",
     "DouyinAPIError", "IMAGEX_APP_ID", "SPACE_NAME", "VISIBILITY",
-    "build_create_v2", "cookies_from_account", "cookies_from_state",
-    "new_creation_id", "publish_via_http",
+    "browser_query", "build_create_v2", "cookies_from_account",
+    "cookies_from_state", "new_creation_id", "normalize_ua",
+    "verify_required",
+    "parse_ware_csrf",
+    "publish_via_http",
 ]
