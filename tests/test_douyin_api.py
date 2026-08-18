@@ -298,3 +298,34 @@ def test_空body带verify头时报出身份验证():
                             '{"account_flow":"verify"}'})
     assert not verify_required({"content-type": "application/json"})
     assert not verify_required({})
+
+
+def test_每个发布入口都要把storage_state传给DouyinAPI():
+    """写操作的签名材料只从 `storage_state` 来 —— 哪个入口漏传,
+    哪个入口就在**最后一步** create_v2 炸,前面上传全绿。
+
+    2026-08-18 产片机实跑:`publish_cli` 少了这一个关键字参数,45MB 视频
+    12 个分片全传完,才抛 `TicketGuardUnavailable: 缺 ticket-guard 材料`
+    —— 报错文案指向「该账号要重新做一次创作者登录」,而材料一直在库里。
+    `publish_via_http` 那条入口是传了的;同一条能力两个入口只接通一个。
+
+    判据落在**源码里 DouyinAPI 的每个构造点**上,不是落在某一条调用链上
+    —— 后者只能证明「我测的这条通了」,而这个 bug 的形状正是「没测的那条」。
+    """
+    import ast
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1] / "application" / "douyin"
+    missing: list[str] = []
+    for py in sorted(root.rglob("*.py")):
+        tree = ast.parse(py.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            fn = node.func
+            name = getattr(fn, "id", None) or getattr(fn, "attr", None)
+            if name != "DouyinAPI":
+                continue
+            if not any(k.arg == "storage_state" for k in node.keywords):
+                missing.append(f"{py.name}:{node.lineno}")
+    assert not missing, f"这些 DouyinAPI 构造点没传 storage_state:{missing}"

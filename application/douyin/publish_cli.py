@@ -78,7 +78,16 @@ async def main() -> int:
     print(f"登录态: {len(ck)} 个 cookie")
     print(f"模式  : {'DRY-RUN(上传但不发布)' if args.dry else '★ 真发布 ★'}\n")
 
-    async with DouyinAPI(ck, ua, acc.proxy or None) as api:
+    #: ⚠️ **必须把 storage_state 传进去** —— 写操作的 bd-ticket-guard 签名
+    #: 材料就在它的 `creator.douyin.com` localStorage 里。少了这一个参数,
+    #: 上传全程正常(读接口不要签名)、直到最后一步 `create_v2` 才抛
+    #: `TicketGuardUnavailable: 缺 ticket-guard 材料`,看起来像「登录态没了」
+    #: 而实际材料一直在库里(2026-08-18 产片机实跑:12 个分片传完才炸)。
+    #: `publish_via_http` 那条入口传了、这条没传 —— 同一条能力两个入口
+    #: 只接通一个,是「声明了不等于接通了」的老形状。
+    async with DouyinAPI(ck, ua, acc.proxy or None,
+                         storage_state=(acc.creator_storage_state
+                                        or acc.storage_state)) as api:
         me = await api.ping()
         print(f"  • 登录 {me.get('nickname')} / {me.get('unique_id')}")
         up = await api.upload_video(args.video, on_step=lambda s: print("  •", s))
