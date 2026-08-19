@@ -1830,10 +1830,21 @@ function monitorOwnWorkDanmaku(itemId, accountId) {
   if ($("d-w-acc") && accountId) $("d-w-acc").value = String(accountId);
   toast("已填入作品 ID，请确认后开始弹幕监控", "info", 5000);
 }
+// 被风控闸门(最小间隔/冷却)挡下的同步返回 {ok:true, skipped:true, reason},
+// 与「真的抓到 0 条」是两种状态。直接套「同步完成:抓到 0 条」会让节流看起来
+// 像平台风控拦截 —— 2026-08-19 快手作品同步的误判就是这么来的。
+function syncToast(r, done) {
+  if (r && r.skipped) {
+    toast(`同步未执行:${r.reason || "被风控闸门挡下"} —— 稍后重试`, "info", 6000);
+    return false;
+  }
+  toast(done(r), "ok");
+  return true;
+}
 async function syncMyWorks() {
   if (!HUB_ACC) { toast("请先选择账号", "err"); return; }
   await withBusy(evtBtn(), "同步中", async () => {
-    try { const r = await api("/api/accounts/" + HUB_ACC + "/works/sync", { method: "POST" }); toast(`同步完成:抓到 ${r.fetched} 条,新增 ${r.added}`, "ok"); }
+    try { const r = await api("/api/accounts/" + HUB_ACC + "/works/sync", { method: "POST" }); syncToast(r, x => `同步完成:抓到 ${x.fetched} 条,新增 ${x.added}`); }
     catch (e) { toast("同步失败:" + e.message, "err"); }
   });
   refreshMyWorks();
@@ -1924,7 +1935,7 @@ async function syncFollows(direction) {
   if (PLATFORM === "xhs") { toast(XHS_FOLLOW_NA, "info", 6000); return; }
   if (!HUB_ACC) { toast("请先选择账号", "err"); return; }
   await withBusy(evtBtn(), "同步中", async () => {
-    try { const r = await api(`/api/accounts/${HUB_ACC}/follows/sync?direction=${direction}`, { method: "POST" }); toast(`同步完成:抓到 ${r.fetched} 条,新增 ${r.added}`, "ok"); }
+    try { const r = await api(`/api/accounts/${HUB_ACC}/follows/sync?direction=${direction}`, { method: "POST" }); syncToast(r, x => `同步完成:抓到 ${x.fetched} 条,新增 ${x.added}`); }
     catch (e) { toast("同步失败:" + e.message, "err"); }
   });
   refreshFollows(direction);
@@ -1995,7 +2006,7 @@ function convRow(c) {
 async function syncDm() {
   if (!HUB_ACC) { toast("请先选择账号", "err"); return; }
   await withBusy(evtBtn(), "同步中", async () => {
-    try { const r = await api("/api/accounts/" + HUB_ACC + "/dm/sync", { method: "POST" }); toast(`同步完成:抓到 ${r.fetched} 个会话,新增 ${r.added}`, "ok"); }
+    try { const r = await api("/api/accounts/" + HUB_ACC + "/dm/sync", { method: "POST" }); syncToast(r, x => `同步完成:抓到 ${x.fetched} 个会话,新增 ${x.added}`); }
     catch (e) { toast("同步失败:" + e.message, "err"); }
   });
   refreshDmConvs();
