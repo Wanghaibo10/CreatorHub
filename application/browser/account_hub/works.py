@@ -4,8 +4,9 @@
 """
 from __future__ import annotations
 
+import json
 import re
-from typing import List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 from urllib.parse import urljoin
 from application.browser.fetcher import fetch_videos
 from application.browser.ks_fetcher import fetch_ks_videos, fetch_ks_self_profile
@@ -237,13 +238,70 @@ def _norm_channels_work(it: dict) -> Optional[dict]:
     }
 
 
+#: 快手 `photoStatus` 可见性映射。2026-08-19 本机双判据实证:
+#: ① www 主页抓到的 13 条**全部**落在 photoStatus=0(13/13);
+#: ② photoStatus=0 共 14 条 = 资料页 `aweme_count`;
+#: photoStatus=1 那 22 条主页流里一条都刷不到 ⇒ 0=公开、1=不公开。
+_KS_PHOTO_STATUS = {0: "公开", 1: "不公开"}
+
+
+def _norm_ks_cp_work(it: dict) -> Optional[dict]:
+    """创作平台 `home/photo/list` 一项 -> 本账号作品 dict。
+    `collect_count`/`share_count` 该接口不给,留 0(**不是 0 收藏,是没这个字段**)。"""
+    if not isinstance(it, dict):
+        return None
+    wid = str(it.get("workId") or "")
+    if not wid:
+        return None
+    ts = _num(it.get("uploadTime"))
+    ps = it.get("photoStatus")
+    return {
+        "item_id": wid,
+        "desc": str(it.get("title") or "").strip(),
+        "media_type": "images" if it.get("showAtlasIcon") else "video",
+        "cover_url": str(it.get("publishCoverUrl") or ""),
+        "create_time": int(ts / 1000) if ts > 1e12 else ts,
+        "like_count": _num(it.get("likeCount")),
+        "comment_count": _num(it.get("commentCount")),
+        "collect_count": 0,
+        "share_count": 0,
+        "play_count": _num(it.get("playCount")),
+        "status": _KS_PHOTO_STATUS.get(ps, f"photoStatus={ps}"),
+        "raw_json": json.dumps(it, ensure_ascii=False),
+    }
+
+
 async def fetch_account_works(mgr: BrowserManager, identity, platform: str, uid: str,
-                              max_scrolls: int = 14) -> Tuple[List[dict], str]:
+                              max_scrolls: int = 14,
+                              cp_cookies: Optional[Dict[str, str]] = None
+                              ) -> Tuple[List[dict], str]:
     """抓取登录账号自己发布的作品(复用各平台已有的主页拦截抓取)。
     返回 (归一后的作品 dict 列表, error)。需要账号已知自身 uid/sec_uid。
-    入参用 identity/platform/uid 原语(由调用方在 session 活跃时取出),避免 ORM 实例失效。"""
+    入参用 identity/platform/uid 原语(由调用方在 session 活跃时取出),避免 ORM 实例失效。
+
+    快手额外走一条 **cp 优先、www 兜底**:`cp_cookies` 给了就先打创作平台的
+    作品列表 —— 它不需要 www 站点会话、不需要 3x uid,还能看到不公开作品。
+    只登了创作平台的账号(www 侧恒 `no_profile_data`)只有这条路走得通。"""
     uid = (uid or "").strip()
     open_url = ""
+    #: ── 快手:先试创作平台(零浏览器、零签名)──────────────────────────
+    #: 判据是 `kuaishou.web.cp.api_ph` 在不在,**不是 dict 空不空** ——
+    #: 只登了主站的账号(如本机 acct2)照样有一堆快手 cookie,dict 非空但没有
+    #: cp 令牌,那样会白跑一趟 cp 再回落、每次同步刷一条无谓的 warning。
+    if platform == "kuaishou" and (cp_cookies or {}).get("kuaishou.web.cp.api_ph"):
+        #: 函数内导入:`application.kuaishou` 与 `application.browser` 之间
+        #: 本来就有一圈循环依赖(kuaishou/__init__ → extract → douyin →
+        #: browser → 本模块 → kuaishou),模块级再加一条会让「谁先被 import」
+        #: 决定成败。放进函数里,导入顺序就不重要了。
+        from application.kuaishou.api import fetch_cp_photo_list
+        cp_items, cp_err = await fetch_cp_photo_list(
+            cp_cookies, ua=getattr(identity, "ua", "") or "",
+            proxy=getattr(identity, "proxy", "") or None, limit=100)
+        cp_out = [w for w in (_norm_ks_cp_work(it) for it in (cp_items or [])) if w]
+        if cp_out:
+            return cp_out, ""
+        #: 不 return —— cp 不通就照旧回落主站,别把已经能用的 www 路径改坏
+        log.warning("[hub-self] kuaishou cp 取数未果(%s),回落主站", cp_err)
     if platform == "xhs":
         # 小红书:站内「我」入口拿真实主页链接(带 xsec_token);失败再退回 uid 直开
         open_url, self_uid = await _self_profile_link(mgr, identity, "xhs")

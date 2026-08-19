@@ -12,6 +12,7 @@ import time
 from datetime import datetime, timedelta
 from sqlmodel import select
 from application.browser import (fetch_videos, fetch_self_profile, fetch_ks_videos, fetch_ks_self_profile, fetch_channels_self_profile, fetch_account_works)
+from application.kuaishou.api import cp_cookies_from_account
 from moss.common.db import get_session
 from application.douyin import parse_self_user
 from application.douyin.extract import Aweme, MediaItem
@@ -306,11 +307,12 @@ class ScanOps:
             return
         self._last_work_health = now
         with get_session() as s:
-            accs = [(a.id, a.platform, a.sec_uid or "", self.browser.identity_for(a))
+            accs = [(a.id, a.platform, a.sec_uid or "", self.browser.identity_for(a),
+                     cp_cookies_from_account(a) if a.platform == "kuaishou" else None)
                     for a in s.exec(select(DouyinAccount)).all()
                     if a.status != "invalid" and a.platform not in ARTICLE_KEYS
                     and (a.storage_state or a.creator_storage_state)]
-        for aid, platform, uid, identity in accs:
+        for aid, platform, uid, identity, cp_cookies in accs:
             decision = self.risk.preflight(aid, OperationKind.READ_HEAVY)
             if not decision.allowed:
                 continue
@@ -320,7 +322,8 @@ class ScanOps:
                             aid, OperationKind.READ_HEAVY).allowed:
                         continue
                     items, err = await fetch_account_works(self.browser, identity,
-                                                           platform, uid)
+                                                           platform, uid,
+                                                           cp_cookies=cp_cookies)
                     if err:
                         self.risk.record_failure(aid, OperationKind.READ_HEAVY, err)
                     else:

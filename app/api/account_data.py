@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from sqlmodel import select
 
 from application.browser import (fetch_account_works, fetch_dm_conversations, fetch_dm_history, fetch_follows)
+from application.kuaishou.api import cp_cookies_from_account
 from moss.common.db import get_session
 from moss.common.logging_setup import get_logger
 from moss.model import (AccountActionTask, AccountStatSnapshot, AccountWork, CommentRecord, DanmakuRecord, DmConversation, DmMessage, DouyinAccount, FollowEdge)
@@ -65,8 +66,13 @@ async def sync_account_works(account_id: int):
         platform = acc.platform
         uid = acc.sec_uid or ""
         identity = rt.browser.identity_for(acc)
+        #: 快手创作平台登录态(cp 优先那条要用)。在 session 里取成普通 dict,
+        #: 与 identity/uid 一样避免把 ORM 实例带出去。
+        cp_cookies = (cp_cookies_from_account(acc)
+                      if platform == "kuaishou" else None)
     async def _fetch():
-        return await fetch_account_works(rt.browser, identity, platform, uid)
+        return await fetch_account_works(rt.browser, identity, platform, uid,
+                                         cp_cookies=cp_cookies)
 
     items, err = await rt.engine.guarded_read_pair(
         account_id, OperationKind.READ_LIGHT, f"account-works:{account_id}",

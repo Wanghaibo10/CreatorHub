@@ -197,6 +197,70 @@ def cookies_from_account(acc) -> Dict[str, str]:
     return out
 
 
+def cp_cookies_from_account(acc) -> Dict[str, str]:
+    """创作平台(cp.kuaishou.com)登录态:`storage_state` 与
+    `creator_storage_state` **两个字段合并**取,越具体的 domain 越后写。
+
+    与 `cookies_from_account` 分开是刻意的 —— 那条喂的是发布链路,
+    动它有风险;取数只读,单开一条互不影响。
+    """
+    out: Dict[str, str] = {}
+    for field in ("storage_state", "creator_storage_state"):
+        raw = getattr(acc, field, "") or ""
+        if not raw:
+            continue
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        rows = [c for c in data.get("cookies", [])
+                if "kuaishou" in (c.get("domain") or "")]
+        for c in sorted(rows, key=lambda c: len(c.get("domain") or "")):
+            out[c["name"]] = c["value"]
+    return out
+
+
+#: cp「作品管理」列表。2026-08-19 从 `ks-cp/js/6551.*.js` 逆出并实证:
+#: POST、body 只要 `{limit}`,**不需要签名**(只有 `upload/finish`/`submit`
+#: 等三个才验),也**不需要 3x uid** —— 按 cookie 认人。
+CP_PHOTO_LIST = "/rest/cp/works/v2/video/pc/home/photo/list"
+
+
+async def fetch_cp_photo_list(cookies: Dict[str, str], *, ua: str = DEFAULT_UA,
+                              limit: int = 100, proxy: Optional[str] = None
+                              ) -> Tuple[List[Dict[str, Any]], str]:
+    """零浏览器拉本账号作品(创作平台侧)。返回 `(items, error)`。
+
+    比 www 主站那条强在三点:① 只要 cp cookie,**不需要 www 站点会话**
+    (只登了创作平台的账号,主站那条恒 `no_profile_data`);② 不需要 3x uid;
+    ③ 带 `photoStatus` 可见性,**能看到不公开作品** —— 主站主页流里根本没有它们
+    (本机实证:cp 36 条 vs www 13 条)。
+    """
+    ph = cookies.get("kuaishou.web.cp.api_ph", "")
+    if not ph:
+        return [], "no_cp_cookie:缺创作平台登录态(kuaishou.web.cp.api_ph)"
+    h = {
+        "User-Agent": ua or DEFAULT_UA, "Origin": CP, "Accept": "*/*",
+        "Referer": CP + "/article/manage/video",
+        "Cookie": "; ".join(f"{k}={v}" for k, v in cookies.items()),
+        "kww": cookies.get("kwfv1", ""),
+        "Content-Type": "application/json;charset=UTF-8",
+    }
+    raw = _dumps({"limit": int(limit), "kuaishou.web.cp.api_ph": ph})
+    try:
+        async with httpx.AsyncClient(timeout=60, proxy=proxy or None) as cli:
+            r = await cli.post(CP + CP_PHOTO_LIST, headers=h, content=raw)
+            j = r.json()
+    except Exception as exc:                                  # noqa: BLE001
+        return [], f"cp_list_error:{exc!r}"
+    if not isinstance(j, dict) or j.get("result") != 1:
+        #: 登录态过期/被拦时 result != 1。把服务端原话带出去,别自己编原因。
+        msg = (j or {}).get("error_msg") or (j or {}).get("message") or ""
+        return [], f"cp_list_rejected:result={(j or {}).get('result')} msg={msg}"
+    items = ((j.get("data") or {}).get("list") or [])
+    return items, ("" if items else "cp_list_empty")
+
+
 async def cookies_from_profile(acc, profiles_root: str,
                                default_ua: str = DEFAULT_UA) -> Dict[str, str]:
     """从账号 profile 取快手域 cookie(**回落用**,会启动 headless 浏览器)。
